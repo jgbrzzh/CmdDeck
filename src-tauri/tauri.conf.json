@@ -44,7 +44,8 @@
       "icons/128x128@2x.png",
       "icons/icon.ico"
     ],
-    "resources": [],
+    "resources": ["../LICENSE", "../docs/THIRD_PARTY_LICENSES.txt"],
+    "licenseFile": "../LICENSE",
     "copyright": "CmdDeck",
     "category": "DeveloperTool",
     "shortDescription": "Windows 控制台集中管理中心",
