@@ -1,0 +1,246 @@
+/**
+ * 过渡与动画。
+ *
+ * 统一走 `--transition-*` 变量与缓动函数；全部动画尊重
+ * `prefers-reduced-motion`（用户系统里关掉动画时直接禁用）。
+ */
+
+/* ============================================================
+   Vue <Transition> 配套类
+   ============================================================ */
+
+/* 弹窗整体：淡入 + 轻微上浮 */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity var(--transition-base);
+}
+.modal-fade-enter-active .modal-panel,
+.modal-fade-leave-active .modal-panel {
+  transition:
+    transform var(--transition-base),
+    opacity var(--transition-base);
+}
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+.modal-fade-enter-from .modal-panel,
+.modal-fade-leave-to .modal-panel {
+  transform: translateY(-8px) scale(0.985);
+  opacity: 0;
+}
+
+/* 浮层面板（快速启动 / 右键菜单 / 下拉） */
+.overlay-fade-enter-active,
+.overlay-fade-leave-active {
+  transition: opacity var(--transition-fast);
+}
+.overlay-fade-enter-from,
+.overlay-fade-leave-to {
+  opacity: 0;
+}
+
+.pop-scale-enter-active {
+  transition:
+    transform var(--transition-fast),
+    opacity var(--transition-fast);
+  transform-origin: top center;
+}
+.pop-scale-leave-active {
+  transition:
+    transform var(--transition-fast),
+    opacity var(--transition-fast);
+  transform-origin: top center;
+}
+.pop-scale-enter-from,
+.pop-scale-leave-to {
+  transform: scaleY(0.94);
+  opacity: 0;
+}
+
+/* 侧边面板从左/右滑入 */
+.slide-left-enter-active,
+.slide-left-leave-active {
+  transition: transform var(--transition-base);
+}
+.slide-left-enter-from,
+.slide-left-leave-to {
+  transform: translateX(-100%);
+}
+
+.slide-right-enter-active,
+.slide-right-leave-active {
+  transition: transform var(--transition-base);
+}
+.slide-right-enter-from,
+.slide-right-leave-to {
+  transform: translateX(100%);
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition:
+    transform var(--transition-base),
+    opacity var(--transition-base);
+}
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(16px);
+  opacity: 0;
+}
+
+/* 纯淡入淡出（Toast、列表项） */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity var(--transition-fast);
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* 列表项进入时的错位滑入，配合 v-for + TransitionGroup */
+.list-slide-enter-active {
+  transition:
+    transform var(--transition-base),
+    opacity var(--transition-base);
+}
+.list-slide-leave-active {
+  transition:
+    transform var(--transition-fast),
+    opacity var(--transition-fast);
+  position: absolute;
+  width: 100%;
+}
+.list-slide-enter-from {
+  transform: translateX(-12px);
+  opacity: 0;
+}
+.list-slide-leave-to {
+  transform: translateX(12px);
+  opacity: 0;
+}
+.list-slide-move {
+  transition: transform var(--transition-base);
+}
+
+/* ============================================================
+   Keyframes
+   ============================================================ */
+
+/** 呼吸灯：运行中的会话状态点 */
+@keyframes cd-pulse {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.32;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/** 旋转加载圈 */
+@keyframes cd-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/** 上下小箭头：终端标签页"更多"指示 */
+@keyframes cd-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+/** 扩散圈：危险操作确认按钮 */
+@keyframes cd-ring {
+  0% {
+    box-shadow: 0 0 0 0 var(--danger-soft);
+  }
+  70% {
+    box-shadow: 0 0 0 8px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+/** 顶部进度条：加载预设/设置时 */
+@keyframes cd-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+/** 闪烁：占位符等待填充 */
+@keyframes cd-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* ============================================================
+   工具类
+   ============================================================ */
+.animate-pulse {
+  animation: cd-pulse 1.4s ease-in-out infinite;
+}
+.animate-spin {
+  animation: cd-spin 0.9s linear infinite;
+}
+.animate-bounce {
+  animation: cd-bounce 1.2s ease-in-out infinite;
+}
+.animate-blink {
+  animation: cd-blink 1s step-end infinite;
+}
+.animate-ring-danger {
+  animation: cd-ring 1.6s ease-out infinite;
+}
+
+/** 顶部细进度条容器 */
+.top-progress {
+  position: relative;
+  overflow: hidden;
+  height: 2px;
+  background: var(--accent-soft);
+}
+.top-progress::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--accent);
+  animation: cd-progress 1.1s ease-in-out infinite;
+}
+
+/* ============================================================
+   无障碍：用户关闭动画时全部禁用
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

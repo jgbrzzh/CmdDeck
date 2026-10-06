@@ -1,0 +1,66 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CmdDeck",
+  "version": "1.0.0",
+  "identifier": "com.cmddeck.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "CmdDeck - 控制台集中管理中心",
+        "width": 1380,
+        "height": 860,
+        "minWidth": 1024,
+        "minHeight": 620,
+        "resizable": true,
+        "fullscreen": false,
+        "center": true,
+        "decorations": true,
+        "transparent": false,
+        "theme": null,
+        "dragDropEnabled": false,
+        "visible": true,
+        "create": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data: blob: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "createUpdaterArtifacts": false,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.ico"
+    ],
+    "resources": [],
+    "copyright": "CmdDeck",
+    "category": "DeveloperTool",
+    "shortDescription": "Windows 控制台集中管理中心",
+    "longDescription": "CmdDeck 是一款 Windows 控制台集中管理软件：可视化预设指令、快速启动、多标签内嵌终端、批量执行、定时任务与工作流串联。",
+    "windows": {
+      "allowDowngrades": false,
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "languages": ["SimpChinese", "English"]
+      },
+      "wix": {
+        "language": ["zh-CN", "en-US"]
+      }
+    },
+    "fileAssociations": []
+  },
+  "plugins": {}
+}

@@ -1,0 +1,29 @@
+name: Bug 反馈
+description: 报告可复现的问题
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: CmdDeck 版本和 Windows 版本
+      placeholder: CmdDeck 1.0.0 / Windows 11 x64
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 写明使用的执行类型、脱敏后的命令和操作步骤。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期和实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志或截图
+      description: 请删除用户名、令牌、环境变量等敏感信息；安全漏洞请勿公开提交。

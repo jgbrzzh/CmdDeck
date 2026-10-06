@@ -1,0 +1,383 @@
+/**
+ * 全局重置与基础排版。
+ *
+ * 桌面应用：不滚动 body，只有内部面板滚动（overflow: hidden）。
+ * 这里同时提供几个小组件通用的原子类（.mono / .truncate / .overlay-root 等）。
+ */
+
+/* ============================================================
+   Reset
+   ============================================================ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+html {
+  font-size: 16px; /* 设置 store 会用 uiScale 覆写这里 */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height);
+  color: var(--text-primary);
+  background: var(--bg-app);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  cursor: default;
+}
+
+h1,
+h2,
+h3,
+h4,
+h5,
+h6,
+p,
+figure,
+blockquote,
+dl,
+dd {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--text-link);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+  margin: 0;
+}
+
+button {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+img,
+svg,
+canvas {
+  display: block;
+  max-width: 100%;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+hr {
+  height: 1px;
+  margin: var(--space-3) 0;
+  border: none;
+  background: var(--border);
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+/* ============================================================
+   焦点环：键盘可见、鼠标不打扰
+   ============================================================ */
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+::selection {
+  background: var(--selection-bg);
+  color: var(--text-primary);
+}
+
+/* ============================================================
+   滚动条：细窄、暗色、与主题联动
+   ============================================================ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ============================================================
+   表单元素基础外观（组件里再覆盖细节）
+   ============================================================ */
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+input[type="text"],
+input[type="search"],
+input[type="number"],
+input[type="password"],
+textarea,
+select {
+  background: var(--bg-input);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) var(--space-2);
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  border-color: var(--accent-border);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 60px;
+  line-height: 1.5;
+}
+
+/* 数字输入框隐藏上下箭头，保持窄栏位整洁 */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ============================================================
+   通用原子类
+   ============================================================ */
+
+/** 等宽字体（命令、路径、退出码等） */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+}
+
+/** 单行省略 */
+.truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/** 细滚动条容器 */
+.scroll-thin {
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+/** 浮层根节点标记：useShortcuts 用它判断是否有浮层打开 */
+.overlay-root {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+}
+
+/** 命令文本里的占位符高亮（highlight.ts 产出 <mark>） */
+mark.cmd-highlight {
+  background: var(--accent-soft);
+  color: var(--text-accent);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-sm);
+  padding: 0 3px;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+mark.cmd-keyword {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-radius: var(--radius-sm);
+  padding: 0 2px;
+}
+
+.cmd-program {
+  color: var(--accent);
+  font-weight: var(--font-weight-medium);
+}
+
+.cmd-arg {
+  color: var(--text-secondary);
+}
+
+/** 可选中的文本（命令预览、输出快照） */
+.selectable {
+  user-select: text;
+  cursor: text;
+}
+
+/** 文本辅助色 */
+.text-secondary {
+  color: var(--text-secondary);
+}
+.text-muted {
+  color: var(--text-muted);
+}
+.text-accent {
+  color: var(--text-accent);
+}
+.text-success {
+  color: var(--success);
+}
+.text-warning {
+  color: var(--warning);
+}
+.text-danger {
+  color: var(--danger);
+}
+.text-info {
+  color: var(--info);
+}
+
+/** 语义状态底色（用于徽章 / 标签） */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  height: 20px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  border: 1px solid var(--border);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+.badge--success {
+  background: var(--success-soft);
+  color: var(--success);
+  border-color: transparent;
+}
+.badge--warning {
+  background: var(--warning-soft);
+  color: var(--warning);
+  border-color: transparent;
+}
+.badge--danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border-color: transparent;
+}
+.badge--info {
+  background: var(--info-soft);
+  color: var(--info);
+  border-color: transparent;
+}
+.badge--accent {
+  background: var(--accent-soft);
+  color: var(--text-accent);
+  border-color: var(--accent-border);
+}
+
+/** 分割线 */
+.hr {
+  height: 1px;
+  background: var(--border);
+  border: none;
+  margin: var(--space-2) 0;
+  flex: none;
+}
+
+.v-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--border);
+  flex: none;
+}
+
+/** 占满剩余空间 */
+.flex-1 {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+.flex-none {
+  flex: none;
+}
+
+/** 隐藏但可被读屏软件访问 */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/** 强制不出现 iOS 式点击高亮（虽然只跑 Windows，留个保险） */
+.no-tap {
+  -webkit-tap-highlight-color: transparent;
+}

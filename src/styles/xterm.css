@@ -1,0 +1,148 @@
+/**
+ * xterm.js 样式。
+ *
+ * 先引入官方样式表，再覆盖成与 CmdDeck 暗色主题一致的观感：
+ * 去掉多余 padding、去掉选中层的默认蓝、统一滚动条与光标闪烁。
+ */
+
+/* 官方主题基础样式 */
+@import "@xterm/xterm/css/xterm.css";
+
+/* ============================================================
+   容器
+   ============================================================ */
+.xterm {
+  padding: var(--terminal-padding-y) var(--terminal-padding-x);
+  height: 100%;
+  width: 100%;
+  background: var(--bg-app) !important;
+  color: var(--text-primary);
+  font-family: var(--font-mono) !important;
+  font-size: var(--terminal-font-size) !important;
+  line-height: 1.35;
+  /* 终端内容允许选中复制 */
+  user-select: text;
+  cursor: default;
+}
+
+.xterm .xterm-viewport {
+  background-color: transparent !important;
+  /* 去掉 WebView2 上方的圆角遮罩 */
+  border-radius: 0 !important;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.xterm .xterm-screen {
+  /* 让 terminal 背景完全交给外层容器，避免主题切换时闪一下 */
+  background: transparent;
+}
+
+/* 隐藏 xterm 内部的可视滚动条装饰，保留滚动能力 */
+.xterm .xterm-viewport > .scrollbar {
+  background: var(--scrollbar-thumb) !important;
+  border-radius: var(--radius-pill);
+}
+.xterm .xterm-viewport > .scrollbar > .slider {
+  background: transparent !important;
+  border-radius: var(--radius-pill);
+}
+
+/* ============================================================
+   光标
+   ============================================================ */
+.xterm .xterm-cursor-layer {
+  /* 光标闪烁速度由 cursorBlink 设置控制，这里只保证色值跟主题 */
+}
+
+.xterm .xterm-cursor {
+  background-color: var(--accent) !important;
+  border-color: var(--accent) !important;
+}
+
+.xterm.xterm-cursor-block .xterm-cursor {
+  background-color: var(--accent) !important;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+/* 光标闪烁关闭时（settingsStore.settings.cursorBlink = false） */
+.xterm.xterm-cursor-block-cursor-hidden .xterm-cursor {
+  background-color: transparent !important;
+  box-shadow: none;
+}
+
+/* ============================================================
+   选中文本
+   ============================================================ */
+.xterm .xterm-selection {
+  background-color: var(--selection-bg) !important;
+}
+.xterm .xterm-selection-layer .xterm-selected-char {
+  background-color: transparent;
+  color: inherit;
+}
+
+/* ============================================================
+   链接（addon-web-links 自动识别）
+   ============================================================ */
+.xterm .xterm-screen a.xterm-link,
+.xterm .xterm-screen a {
+  color: var(--text-link);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.xterm .xterm-screen a:hover {
+  color: var(--accent);
+}
+
+/* ============================================================
+   搜索高亮（addon-search）
+   ============================================================ */
+.xterm .xterm-search-decoration {
+  background-color: var(--warning-soft) !important;
+  border-radius: var(--radius-sm);
+}
+.xterm .xterm-search-decoration-current,
+.xterm .xterm-current-search-decoration {
+  background-color: var(--warning) !important;
+  color: var(--text-inverse);
+}
+
+/* ============================================================
+   辅助层：隐藏的 textarea / composition helper
+   ============================================================ */
+.xterm .xterm-helpers {
+  position: absolute !important;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+}
+
+.xterm .xterm-helper-textarea {
+  opacity: 0;
+  resize: none;
+  /* 用快捷键做「豁免判断」时靠这个 class */
+}
+
+/* 明亮主题下的滚动条也走变量，无需额外处理 */
+
+/* ============================================================
+   终端占位（无会话时）
+   ============================================================ */
+.xterm-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-base);
+  pointer-events: none;
+}
+
+/* WebView2 下 xterm 挂载后偶发的 1px 抖动 */
+.xterm-dom-renderer-element {
+  transform: translateZ(0);
+}

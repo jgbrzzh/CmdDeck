@@ -1,0 +1,68 @@
+[package]
+# CmdDeck —— Windows 控制台集中管理中心（Rust 后端）
+name = "cmddeck"
+version = "1.0.0"
+description = "CmdDeck - Windows 控制台集中管理中心"
+authors = ["CmdDeck"]
+edition = "2021"
+rust-version = "1.88"
+license = "GPL-3.0-only"
+repository = "https://github.com/jgbrzzh/CmdDeck"
+default-run = "cmddeck"
+
+# 桌面程序不链接控制台，release 下体积更小、启动更快
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# 开发期依赖：只负责构建，不进入最终产物
+[lib]
+name = "cmddeck_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# ---- Tauri 核心 ----
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+
+# ---- Tauri 官方插件 ----
+tauri-plugin-dialog = "2"          # 文件夹选择 / 保存对话框
+tauri-plugin-fs = "2"              # 导入导出配置文件
+tauri-plugin-opener = "2"          # 用系统默认程序打开目录、文件
+tauri-plugin-global-shortcut = "2" # 全局快捷键（快速启动面板）
+tauri-plugin-autostart = "2"       # 开机自启动
+tauri-plugin-single-instance = "2"  # 单实例运行
+
+# ---- 序列化 ----
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# ---- 数据库（bundled = 静态编译 SQLite，无需用户另装）----
+rusqlite = { version = "0.37", features = ["bundled"] }
+
+# ---- 伪终端：让 cmd/PowerShell/python 表现得像在真终端里 ----
+portable-pty = "0.9"
+
+# ---- 字符编码：Windows 控制台常见 GBK，需要转成 UTF-8 才能正确显示中文 ----
+encoding_rs = "0.8"
+
+# ---- 其它工具 ----
+regex = "1"                                   # 黑名单 / 占位符正则
+uuid = { version = "1", features = ["v4"] }   # 会话 ID
+parking_lot = "0.12"                          # 比 std::sync::Mutex 更快的锁
+thiserror = "2"                               # 声明式错误类型
+log = "0.4"                                   # 轻量日志门面
+
+[features]
+# 默认构建不需要额外特性位；保留一个开关位方便后续扩展
+custom-protocol = ["tauri/custom-protocol"]
+[profile.dev]
+debug = 0
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_System_JobObjects"] }
