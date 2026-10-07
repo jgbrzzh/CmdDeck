@@ -1,7 +1,7 @@
 {
   "name": "cmddeck",
   "private": true,
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "CmdDeck - Windows 控制台集中管理中心（预设指令 + 内嵌终端 + 快速启动）",
   "type": "module",
   "scripts": {
@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.1",
+    "@tauri-apps/plugin-clipboard-manager": "^2.4.1",
     "@tauri-apps/plugin-dialog": "^2.8.1",
     "@tauri-apps/plugin-fs": "^2.6.0",
     "@xterm/addon-fit": "^0.11.0",

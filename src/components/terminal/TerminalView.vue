@@ -293,7 +293,14 @@ async function copySelection(): Promise<boolean> {
 /** 复制全部输出（优先用 xterm 里的完整缓冲，退化到 store 缓冲） */
 async function copyAllOutput(): Promise<boolean> {
   if (!term) return false;
-  const text = props.tab.outputBuffer || "";
+  // 从已渲染的终端缓冲复制纯文本，避免夹带 ANSI 控制序列，也与清屏行为一致。
+  const buffer = term.buffer.active;
+  const text = Array.from(
+    { length: buffer.length },
+    (_, i) => buffer.getLine(i)?.translateToString(true) || "",
+  )
+    .join("\n")
+    .trimEnd();
   if (!text) {
     uiStore.toast("warning", "没有可复制的内容", "该会话尚未产生任何输出");
     return false;
@@ -309,6 +316,14 @@ async function copyAllOutput(): Promise<boolean> {
 
 /** 粘贴剪贴板内容到终端（走 onData，兼容 readline / cmd） */
 async function pasteClipboard(): Promise<void> {
+  if (!settingsStore.settings.value.allowInteractiveInput) {
+    uiStore.toast(
+      "warning",
+      "终端当前只读",
+      "在设置中明确开启交互输入后才能粘贴",
+    );
+    return;
+  }
   if (!term) return;
   const text = await readText();
   if (!text) {
@@ -471,6 +486,7 @@ function onKeyEvent(ev: KeyboardEvent): boolean {
     return false;
   }
 
+  if (!settingsStore.settings.value.allowInteractiveInput) return false;
   return true;
 }
 
@@ -490,6 +506,7 @@ onMounted(() => {
     cursorBlink: s.cursorBlink,
     cursorStyle: "block",
     cursorWidth: 2,
+    // 保留 ConPTY 协议回应；只读输入在 onData 和后端分别检查。
     disableStdin: false,
     fontFamily: s.fontFamily || "Consolas, monospace",
     fontSize: Math.min(40, Math.max(8, s.fontSize || 14)),
@@ -531,7 +548,14 @@ onMounted(() => {
   ) as HTMLElement | null;
 
   // 用户输入 → 后端
-  term.onData((data: string) => terminalStore.write(sessionId.value, data));
+  term.onData((data: string) => {
+    if (
+      settingsStore.settings.value.allowInteractiveInput ||
+      data === "\u0003" ||
+      /^\x1b\[[?>]?[0-9;]{1,64}(?:[Rcnt]|\$y)$/.test(data)
+    )
+      terminalStore.write(sessionId.value, data);
+  });
 
   // 键盘拦截
   term.attachCustomKeyEventHandler(onKeyEvent);
@@ -725,6 +749,11 @@ defineExpose({
 
 <template>
   <div class="cd-term" :class="{ 'is-finished': finished }">
+    <span
+      v-if="!finished && !settingsStore.settings.value.allowInteractiveInput"
+      class="readonly-badge"
+      >只读 · 输入和粘贴已关闭</span
+    >
     <!-- xterm 挂载点 -->
     <div ref="hostRef" class="cd-term__host" @contextmenu="openMenu" />
 
@@ -810,6 +839,18 @@ defineExpose({
 </template>
 
 <style scoped>
+.readonly-badge {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 2;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: var(--bg-elevated, #161b22);
+  color: var(--text-muted, #8b949e);
+  font-size: 12px;
+  pointer-events: none;
+}
 /* ============================================================
    容器
    ============================================================ */

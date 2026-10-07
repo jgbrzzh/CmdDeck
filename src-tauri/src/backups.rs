@@ -96,6 +96,13 @@ pub fn snapshot(state: &AppState) -> AppResult<String> {
 /// 先在独立内存库校验全部记录，再通过一次 SQLite 事务替换配置。
 /// 原库的审计与历史输出不变；任何一条记录失败都不会留下半份恢复结果。
 pub fn restore_into(db: &db::Db, bundle: &ExportBundle) -> AppResult<()> {
+    replace_configuration(db, bundle, true)
+}
+pub fn replace_configuration(
+    db: &db::Db,
+    bundle: &ExportBundle,
+    clear_runs: bool,
+) -> AppResult<()> {
     crate::commands::system_cmds::validate_settings(&bundle.settings)?;
     crate::productivity::validate(&bundle.productivity)?;
     let stage = db::Db::open_in_memory()?;
@@ -119,7 +126,10 @@ pub fn restore_into(db: &db::Db, bundle: &ExportBundle) -> AppResult<()> {
     let source = stage.conn();
     let mut target = db.conn();
     let tx = target.transaction()?;
-    tx.execute_batch("DELETE FROM workflow_runs; DELETE FROM presets; DELETE FROM groups; DELETE FROM workflows; DELETE FROM schedules; DELETE FROM settings WHERE key IN ('app','productivity');")?;
+    if clear_runs {
+        tx.execute("DELETE FROM workflow_runs", [])?;
+    }
+    tx.execute_batch("DELETE FROM presets; DELETE FROM groups; DELETE FROM workflows; DELETE FROM schedules; DELETE FROM settings WHERE key IN ('app','productivity');")?;
     for table in ["groups", "presets", "workflows", "schedules", "settings"] {
         let mut columns = source.prepare(&format!("PRAGMA table_info({table})"))?;
         let names = columns

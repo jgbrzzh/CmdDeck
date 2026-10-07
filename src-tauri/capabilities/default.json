@@ -2,10 +2,7 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "CmdDeck 主窗口所需的全部权限。权限按功能拆分，便于最小授权。",
-  "windows": [
-    "main",
-    "deck-*"
-  ],
+  "windows": ["main", "deck-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
@@ -38,6 +35,8 @@
     "fs:allow-exists",
     "fs:allow-mkdir",
     "fs:allow-read-dir",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text",
     "opener:default",
     "opener:allow-reveal-item-in-dir",
     "opener:allow-open-path",

@@ -18,6 +18,107 @@ use std::{
 };
 use tauri::{AppHandle, Manager};
 
+struct Spawned {
+    master: Option<Box<dyn MasterPty + Send>>,
+    reader: Box<dyn Read + Send>,
+    writer: Box<dyn Write + Send>,
+    wait: Box<dyn FnOnce() -> i32 + Send>,
+    #[cfg(windows)]
+    process: Option<OwnedHandle>,
+    #[cfg(windows)]
+    job: Option<OwnedHandle>,
+    #[cfg(windows)]
+    remote: Option<Arc<crate::elevated::Remote>>,
+    #[cfg(not(windows))]
+    killer: Box<dyn ChildKiller + Send + Sync>,
+}
+fn start_pty(
+    opt: &SpawnOptions,
+    program: &str,
+    args: &[String],
+    cwd: &str,
+    temp: &str,
+) -> AppResult<Spawned> {
+    #[cfg(windows)]
+    if opt.elevated && !crate::commands::system_cmds::is_elevated()? {
+        let (remote, reader, writer) = crate::elevated::spawn(crate::elevated::Request {
+            options: opt.clone(),
+            program: program.into(),
+            args: args.into(),
+            cwd: cwd.into(),
+            temp: temp.into(),
+        })?;
+        let waiter = remote.clone();
+        return Ok(Spawned {
+            master: None,
+            reader,
+            writer,
+            wait: Box::new(move || waiter.wait()),
+            process: None,
+            job: None,
+            remote: Some(remote),
+        });
+    }
+    let pair = native_pty_system()
+        .openpty(PtySize {
+            rows: opt.rows.max(1),
+            cols: opt.cols.max(1),
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .map_err(exec_error)?;
+    let mut cmd = CommandBuilder::new(&program);
+    cmd.args(args);
+    cmd.cwd(&cwd);
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("PYTHONIOENCODING", "utf-8");
+    if opt.runtime.kind == "conda" || opt.source == "environment" {
+        // Conda run 会写临时批处理；使用应用可写目录，避免受限 TEMP 导致启动失败。
+        let temp = std::path::PathBuf::from(temp);
+        for key in ["TEMP", "TMP"] {
+            if !opt.env.iter().any(|e| e.name.eq_ignore_ascii_case(key)) {
+                cmd.env(key, &temp);
+            }
+        }
+    }
+    for env in &opt.env {
+        cmd.env(&env.name, &env.value);
+    }
+    crate::environments::apply_binding(&mut cmd, &opt.runtime, &opt.env)?;
+    let mut child = pair.slave.spawn_command(cmd).map_err(exec_error)?;
+    drop(pair.slave);
+    let reader = pair.master.try_clone_reader().map_err(exec_error)?;
+    let writer = pair.master.take_writer().map_err(exec_error)?;
+
+    #[cfg(windows)]
+    let process = unsafe {
+        BorrowedHandle::borrow_raw(
+            child
+                .as_raw_handle()
+                .ok_or_else(|| AppError::exec("无法获取进程句柄"))?,
+        )
+        .try_clone_to_owned()?
+    };
+    #[cfg(windows)]
+    let job = process_job(&process)?;
+    #[cfg(not(windows))]
+    let killer = child.clone_killer();
+    Ok(Spawned {
+        master: Some(pair.master),
+        reader,
+        writer,
+        wait: Box::new(move || child.wait().map(|s| s.exit_code() as i32).unwrap_or(-1)),
+        #[cfg(windows)]
+        process: Some(process),
+        #[cfg(windows)]
+        job,
+        #[cfg(windows)]
+        remote: None,
+        #[cfg(not(windows))]
+        killer,
+    })
+}
+
 pub struct Session {
     pub info: Mutex<TerminalInfo>,
     output: Mutex<String>,
@@ -26,9 +127,11 @@ pub struct Session {
     #[cfg(not(windows))]
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     #[cfg(windows)]
-    process: std::os::windows::io::OwnedHandle,
+    process: Option<std::os::windows::io::OwnedHandle>,
     #[cfg(windows)]
     job: Option<OwnedHandle>,
+    #[cfg(windows)]
+    remote: Option<Arc<crate::elevated::Remote>>,
 }
 pub struct PtyManager {
     app: AppHandle,
@@ -38,7 +141,7 @@ fn exec_error(e: impl std::fmt::Display) -> AppError {
     AppError::exec(e.to_string())
 }
 #[cfg(windows)]
-fn process_job(process: &OwnedHandle) -> AppResult<Option<OwnedHandle>> {
+pub(crate) fn process_job(process: &OwnedHandle) -> AppResult<Option<OwnedHandle>> {
     use windows_sys::Win32::System::{JobObjects::*, Threading::*};
     unsafe {
         let raw = CreateJobObjectW(std::ptr::null(), std::ptr::null());
@@ -148,6 +251,9 @@ impl PtyManager {
         #[cfg(windows)]
         {
             use windows_sys::Win32::System::{JobObjects::*, Threading::GetProcessId};
+            if let Some(remote) = &s.remote {
+                return Ok(vec![remote.pid]);
+            }
             if let Some(job) = &s.job {
                 let mut count = 64usize;
                 for _ in 0..4 {
@@ -173,7 +279,10 @@ impl PtyManager {
                 }
                 return Err(AppError::io("无法读取任务进程树"));
             }
-            Ok(vec![unsafe { GetProcessId(s.process.as_raw_handle()) }])
+            Ok(s.process
+                .as_ref()
+                .map(|p| vec![unsafe { GetProcessId(p.as_raw_handle()) }])
+                .unwrap_or_default())
         }
         #[cfg(not(windows))]
         {
@@ -189,6 +298,14 @@ impl PtyManager {
     }
     pub fn resize(&self, id: &str, cols: u16, rows: u16) -> AppResult<()> {
         let s = self.get(id)?;
+        #[cfg(windows)]
+        if let Some(remote) = &s.remote {
+            remote.resize(cols, rows)?;
+            let mut i = s.info.lock();
+            i.cols = cols;
+            i.rows = rows;
+            return Ok(());
+        }
         s.master
             .lock()
             .as_ref()
@@ -212,6 +329,14 @@ impl PtyManager {
             // 使用拥有生命周期的进程句柄直接调用 Win32，避免误报“操作成功”。
             s.info.lock().status = "killed".into();
             #[cfg(windows)]
+            if let Some(remote) = &s.remote {
+                if let Err(e) = remote.kill() {
+                    s.info.lock().status = "running".into();
+                    return Err(e);
+                }
+                return Ok(());
+            }
+            #[cfg(windows)]
             {
                 use windows_sys::Win32::System::JobObjects::TerminateJobObject;
                 use windows_sys::Win32::System::Threading::{GetExitCodeProcess, TerminateProcess};
@@ -219,11 +344,23 @@ impl PtyManager {
                     let stopped = if let Some(job) = &s.job {
                         TerminateJobObject(job.as_raw_handle(), 1)
                     } else {
-                        TerminateProcess(s.process.as_raw_handle(), 1)
+                        TerminateProcess(
+                            s.process
+                                .as_ref()
+                                .ok_or_else(|| AppError::exec("无法获取任务进程"))?
+                                .as_raw_handle(),
+                            1,
+                        )
                     };
                     if stopped == 0 {
                         let mut code = 259;
-                        if GetExitCodeProcess(s.process.as_raw_handle(), &mut code) == 0
+                        if GetExitCodeProcess(
+                            s.process
+                                .as_ref()
+                                .ok_or_else(|| AppError::exec("无法获取任务进程"))?
+                                .as_raw_handle(),
+                            &mut code,
+                        ) == 0
                             || code == 259
                         {
                             s.info.lock().status = "running".into();
@@ -262,6 +399,10 @@ impl PtyManager {
             return Err(AppError::validation("正在恢复配置，请稍后启动任务"));
         }
         let settings = state.settings();
+        // 环境管理等内部入口同样受执行白名单约束。
+        let (requested, _) = opt.resolve();
+        let directory = resolve_working_directory(&opt.working_dir, &settings.default_working_dir)?;
+        crate::security::check_executable(&requested, &directory, &settings)?;
         if sessions
             .values()
             .filter(|s| s.info.lock().exit_code.is_none())
@@ -278,6 +419,11 @@ impl PtyManager {
         }
         let (mut program, args) = opt.resolve();
         let cwd = resolve_working_directory(&opt.working_dir, &settings.default_working_dir)?;
+        if !settings.allowed_executables.is_empty() {
+            program = crate::security::executable_path(&program, &cwd)?
+                .to_string_lossy()
+                .into_owned();
+        }
         if !std::path::Path::new(&program).is_absolute()
             && std::path::Path::new(&cwd).join(&program).is_file()
         {
@@ -289,36 +435,14 @@ impl PtyManager {
         if program.is_empty() {
             return Err(AppError::validation("请填写可执行程序路径"));
         }
-        let pair = native_pty_system()
-            .openpty(PtySize {
-                rows: opt.rows.max(1),
-                cols: opt.cols.max(1),
-                pixel_width: 0,
-                pixel_height: 0,
-            })
-            .map_err(exec_error)?;
-        let mut cmd = CommandBuilder::new(&program);
-        cmd.args(&args);
-        cmd.cwd(&cwd);
-        cmd.env("TERM", "xterm-256color");
-        cmd.env("PYTHONIOENCODING", "utf-8");
-        if opt.runtime.kind == "conda" || opt.source == "environment" {
-            // Conda run 会写临时批处理；使用应用可写目录，避免受限 TEMP 导致启动失败。
-            let temp = state.sub_dir("tmp")?;
-            for key in ["TEMP", "TMP"] {
-                if !opt.env.iter().any(|e| e.name.eq_ignore_ascii_case(key)) {
-                    cmd.env(key, &temp);
-                }
-            }
-        }
-        for env in &opt.env {
-            cmd.env(&env.name, &env.value);
-        }
-        crate::environments::apply_binding(&mut cmd, &opt.runtime, &opt.env)?;
-        let mut child = pair.slave.spawn_command(cmd).map_err(exec_error)?;
-        drop(pair.slave);
-        let mut reader = pair.master.try_clone_reader().map_err(exec_error)?;
-        let writer = pair.master.take_writer().map_err(exec_error)?;
+        let temp = if opt.runtime.kind == "conda" || opt.source == "environment" {
+            state.sub_dir("tmp")?.to_string_lossy().into_owned()
+        } else {
+            String::new()
+        };
+        let spawned = start_pty(&opt, &program, &args, &cwd, &temp)?;
+        let mut reader = spawned.reader;
+        let waiter = spawned.wait;
         let preset_name = if opt.preset_id.is_empty() {
             String::new()
         } else {
@@ -348,28 +472,19 @@ impl PtyManager {
             elevated: opt.elevated,
             temporary: opt.source != "manual",
         };
-        #[cfg(windows)]
-        let process = unsafe {
-            BorrowedHandle::borrow_raw(
-                child
-                    .as_raw_handle()
-                    .ok_or_else(|| AppError::exec("无法获取进程句柄"))?,
-            )
-            .try_clone_to_owned()?
-        };
-        #[cfg(windows)]
-        let job = process_job(&process)?;
         let session = Arc::new(Session {
             info: Mutex::new(info.clone()),
             output: Mutex::new(String::new()),
-            master: Mutex::new(Some(pair.master)),
-            writer: Mutex::new(writer),
+            master: Mutex::new(spawned.master),
+            writer: Mutex::new(spawned.writer),
             #[cfg(not(windows))]
-            killer: Mutex::new(child.clone_killer()),
+            killer: Mutex::new(spawned.killer),
             #[cfg(windows)]
-            process,
+            process: spawned.process,
             #[cfg(windows)]
-            job,
+            job: spawned.job,
+            #[cfg(windows)]
+            remote: spawned.remote,
         });
         sessions.insert(info.session_id.clone(), session.clone());
         drop(sessions);
@@ -416,7 +531,7 @@ impl PtyManager {
         });
         let app = self.app.clone();
         std::thread::spawn(move || {
-            let code = child.wait().map(|s| s.exit_code() as i32).unwrap_or(-1);
+            let code = waiter();
             #[cfg(windows)]
             if let Some(job) = &session.job {
                 unsafe {

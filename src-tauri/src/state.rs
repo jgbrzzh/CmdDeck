@@ -34,6 +34,7 @@ pub struct AppState {
     /// 窗口是否正在退出（托盘最小化时为 true，阻止真正退出）
     pub exiting: AtomicBool,
     pub restoring: AtomicBool,
+    pub integration_warnings: Mutex<Vec<String>>,
     /// 工作流线程池的运行计数（仅用于状态栏展示）
     pub active_workflows: RwLock<Vec<String>>,
 }
@@ -77,6 +78,7 @@ impl AppState {
             scheduler_control: Mutex::new(()),
             exiting: AtomicBool::new(false),
             restoring: AtomicBool::new(false),
+            integration_warnings: Mutex::new(Vec::new()),
             active_workflows: RwLock::new(Vec::new()),
         })
     }

@@ -55,6 +55,9 @@ fn validate_spawn(state: &AppState, opt: &SpawnOptions, confirmed: bool) -> AppR
     crate::environments::validate_binding(&opt.runtime)?;
     let settings = state.settings();
     let (program, args) = opt.resolve();
+    let cwd =
+        crate::pty::resolve_working_directory(&opt.working_dir, &settings.default_working_dir)?;
+    crate::security::check_executable(&program, &cwd, &settings)?;
     let text = join_command_line(&program, &args);
     let verdict = crate::security::check(&text, &settings);
     if verdict.level == "blocked" || (verdict.requires_confirm && !confirmed) {
@@ -86,9 +89,10 @@ fn validate_spawn(state: &AppState, opt: &SpawnOptions, confirmed: bool) -> AppR
     if ["exe", "custom"].contains(&opt.kind.as_str()) && !settings.allow_unknown_exe {
         return Err(AppError::permission("请在设置中开启自定义 exe 执行权限"));
     }
-    if opt.elevated && !super::system_cmds::is_elevated()? {
+    if opt.elevated && !super::system_cmds::is_elevated()? && (!confirmed || opt.source != "manual")
+    {
         return Err(AppError::permission(
-            "内嵌管理员终端需要先以管理员身份启动 CmdDeck，请关闭后右键选择以管理员身份运行",
+            "管理员任务需要人工确认，不能自动弹出 UAC",
         ));
     }
     Ok(())
@@ -112,7 +116,7 @@ fn run_in_workspace(
 ) -> AppResult<TerminalInfo> {
     let st = app.state::<AppState>();
     let p = db::presets::get(&st.db, id)?;
-    if p.confirm && !confirmed {
+    if (p.confirm || p.elevated) && !confirmed {
         return Err(AppError::blocked("此预设要求人工确认，自动运行已阻止"));
     }
     let mut opt = options(&p, args, source)?;
@@ -186,6 +190,7 @@ pub fn write_terminal(
     session_id: String,
     data: String,
 ) -> AppResult<()> {
+    crate::security::check_input(&data, &state.settings())?;
     state.pty.write(&session_id, &data)
 }
 #[tauri::command]

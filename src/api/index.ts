@@ -200,10 +200,15 @@ export const workflowApi = {
 // ============================================================
 
 export const systemApi = {
+  newWindow: () => call<string>("create_work_window"),
   integrationStatus: () =>
-    call<{ autostart: boolean; tray: boolean; scheduler: boolean }>(
-      "get_integration_status",
-    ),
+    call<{
+      autostart: boolean;
+      tray: boolean;
+      scheduler: boolean;
+      hotkey: string;
+      warnings: string[];
+    }>("get_integration_status"),
   appInfo: () => call<AppInfo>("get_app_info"),
   getSettings: () => call<AppSettings>("get_settings"),
   saveSettings: (settings: AppSettings) =>

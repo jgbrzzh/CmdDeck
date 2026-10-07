@@ -9,6 +9,7 @@
 | Cargo | alloc-no-stdlib | 3.0.0 | BSD-3-Clause |
 | Cargo | alloc-stdlib | 0.3.0 | BSD-3-Clause |
 | Cargo | anyhow | 1.0.104 | MIT OR Apache-2.0 |
+| Cargo | arboard | 3.6.1 | MIT OR Apache-2.0 |
 | Cargo | atomic-waker | 1.1.2 | Apache-2.0 OR MIT |
 | Cargo | auto-launch | 0.6.0 | MIT |
 | Cargo | autocfg | 1.5.1 | Apache-2.0 OR MIT |
@@ -35,6 +36,7 @@
 | Cargo | cfg-if | 1.0.5 | MIT OR Apache-2.0 |
 | Cargo | cfg_aliases | 0.1.1 | MIT |
 | Cargo | chrono | 0.4.45 | MIT OR Apache-2.0 |
+| Cargo | clipboard-win | 5.4.1 | BSL-1.0 |
 | Cargo | cookie | 0.18.2 | MIT OR Apache-2.0 |
 | Cargo | core_detect | 1.0.0 | MIT/Apache-2.0 |
 | Cargo | cpufeatures | 0.2.17 | MIT OR Apache-2.0 |
@@ -69,9 +71,11 @@
 | Cargo | encoding_rs | 0.8.42 | (Apache-2.0 OR MIT) AND BSD-3-Clause |
 | Cargo | equivalent | 1.0.2 | Apache-2.0 OR MIT |
 | Cargo | erased-serde | 0.4.10 | MIT OR Apache-2.0 |
+| Cargo | error-code | 3.4.0 | BSL-1.0 |
 | Cargo | fallible-iterator | 0.3.0 | MIT/Apache-2.0 |
 | Cargo | fallible-streaming-iterator | 0.1.9 | MIT/Apache-2.0 |
 | Cargo | fastrand | 2.5.0 | Apache-2.0 OR MIT |
+| Cargo | fax | 0.2.7 | MIT |
 | Cargo | fdeflate | 0.3.7 | MIT OR Apache-2.0 |
 | Cargo | filedescriptor | 0.8.3 | MIT |
 | Cargo | find-msvc-tools | 0.1.14 | MIT OR Apache-2.0 |
@@ -92,6 +96,7 @@
 | Cargo | getrandom | 0.4.3 | MIT OR Apache-2.0 |
 | Cargo | glob | 0.3.4 | MIT OR Apache-2.0 |
 | Cargo | global-hotkey | 0.8.0 | Apache-2.0 OR MIT |
+| Cargo | half | 2.7.1 | MIT OR Apache-2.0 |
 | Cargo | hashbrown | 0.12.3 | MIT OR Apache-2.0 |
 | Cargo | hashbrown | 0.15.5 | MIT OR Apache-2.0 |
 | Cargo | hashbrown | 0.17.1 | MIT OR Apache-2.0 |
@@ -174,6 +179,7 @@
 | Cargo | precomputed-hash | 0.1.1 | MIT |
 | Cargo | proc-macro2 | 1.0.107 | MIT OR Apache-2.0 |
 | Cargo | pxfm | 0.1.30 | BSD-3-Clause OR Apache-2.0 |
+| Cargo | quick-error | 2.0.1 | MIT/Apache-2.0 |
 | Cargo | quick-xml | 0.42.0 | MIT |
 | Cargo | quote | 1.0.47 | MIT OR Apache-2.0 |
 | Cargo | raw-window-handle | 0.6.2 | MIT OR Apache-2.0 OR Zlib |
@@ -238,6 +244,7 @@
 | Cargo | tauri-macros | 2.7.1 | Apache-2.0 OR MIT |
 | Cargo | tauri-plugin | 2.7.1 | Apache-2.0 OR MIT |
 | Cargo | tauri-plugin-autostart | 2.7.0 | Apache-2.0 OR MIT |
+| Cargo | tauri-plugin-clipboard-manager | 2.4.1 | Apache-2.0 OR MIT |
 | Cargo | tauri-plugin-dialog | 2.8.1 | Apache-2.0 OR MIT |
 | Cargo | tauri-plugin-fs | 2.6.0 | Apache-2.0 OR MIT |
 | Cargo | tauri-plugin-global-shortcut | 2.4.0 | Apache-2.0 OR MIT |
@@ -253,6 +260,7 @@
 | Cargo | thiserror | 2.0.21 | MIT OR Apache-2.0 |
 | Cargo | thiserror-impl | 1.0.69 | MIT OR Apache-2.0 |
 | Cargo | thiserror-impl | 2.0.21 | MIT OR Apache-2.0 |
+| Cargo | tiff | 0.11.3 | MIT |
 | Cargo | time | 0.3.55 | MIT OR Apache-2.0 |
 | Cargo | time-core | 0.1.9 | MIT OR Apache-2.0 |
 | Cargo | time-macros | 0.2.32 | MIT OR Apache-2.0 |
@@ -293,6 +301,7 @@
 | Cargo | webview2-com | 0.39.1 | MIT |
 | Cargo | webview2-com-macros | 0.8.1 | MIT |
 | Cargo | webview2-com-sys | 0.39.1 | MIT |
+| Cargo | weezl | 0.1.12 | MIT OR Apache-2.0 |
 | Cargo | winapi | 0.3.9 | MIT/Apache-2.0 |
 | Cargo | winapi-util | 0.1.11 | Unlicense OR MIT |
 | Cargo | window-vibrancy | 0.8.1 | Apache-2.0 OR MIT |
@@ -323,6 +332,8 @@
 | Cargo | wry | 0.57.0 | Apache-2.0 OR MIT |
 | Cargo | yoke | 0.8.3 | Unicode-3.0 |
 | Cargo | yoke-derive | 0.8.4 | Unicode-3.0 |
+| Cargo | zerocopy | 0.8.61 | BSD-2-Clause OR Apache-2.0 OR MIT |
+| Cargo | zerocopy-derive | 0.8.61 | BSD-2-Clause OR Apache-2.0 OR MIT |
 | Cargo | zerofrom | 0.1.8 | Unicode-3.0 |
 | Cargo | zerofrom-derive | 0.1.8 | Unicode-3.0 |
 | Cargo | zeroize | 1.9.1 | Apache-2.0 OR MIT |
@@ -331,6 +342,8 @@
 | Cargo | zerovec-derive | 0.11.6 | Unicode-3.0 |
 | Cargo | zlib-rs | 0.6.8 | Zlib |
 | Cargo | zmij | 1.0.23 | MIT |
+| Cargo | zune-core | 0.5.3 | MIT OR Apache-2.0 OR Zlib |
+| Cargo | zune-jpeg | 0.5.15 | MIT OR Apache-2.0 OR Zlib |
 | npm | @babel/helper-string-parser | 7.29.7 | MIT |
 | npm | @babel/helper-validator-identifier | 7.29.7 | MIT |
 | npm | @babel/parser | 7.29.9 | MIT |
@@ -342,6 +355,7 @@
 | npm | @tauri-apps/api | 2.12.1 | Apache-2.0 OR MIT |
 | npm | @tauri-apps/cli | 2.12.1 | Apache-2.0 OR MIT |
 | npm | @tauri-apps/cli-win32-x64-msvc | 2.12.1 | Apache-2.0 OR MIT |
+| npm | @tauri-apps/plugin-clipboard-manager | 2.4.1 | MIT OR Apache-2.0 |
 | npm | @tauri-apps/plugin-dialog | 2.8.1 | MIT OR Apache-2.0 |
 | npm | @tauri-apps/plugin-fs | 2.6.0 | MIT OR Apache-2.0 |
 | npm | @types/node | 26.6.4 | MIT |

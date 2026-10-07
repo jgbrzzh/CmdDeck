@@ -496,6 +496,8 @@ export interface AppSettings {
   // 行为
   confirmDangerous: boolean;
   allowUnknownExe: boolean;
+  allowInteractiveInput: boolean;
+  allowedExecutables: string[];
   auditEnabled: boolean;
   historyEnabled: boolean;
   historyLimit: number;
@@ -533,6 +535,8 @@ export function defaultSettings(): AppSettings {
 
     confirmDangerous: true,
     allowUnknownExe: false,
+    allowInteractiveInput: false,
+    allowedExecutables: [],
     auditEnabled: true,
     historyEnabled: true,
     historyLimit: 500,

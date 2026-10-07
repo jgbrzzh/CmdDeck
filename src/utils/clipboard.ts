@@ -5,6 +5,12 @@
  * 可能不可用，所以保留 `document.execCommand('copy')` 兜底。
  */
 
+import { isTauri } from "@tauri-apps/api/core";
+import {
+  writeText as writeNativeText,
+  readText as readNativeText,
+} from "@tauri-apps/plugin-clipboard-manager";
+
 /** HTML 转义，用于 textarea 兜底方案 */
 function escapeForTextarea(text: string): string {
   return text
@@ -22,6 +28,14 @@ function escapeForTextarea(text: string): string {
 export async function writeText(text: string): Promise<boolean> {
   const content = text ?? "";
   if (!content) return false;
+  if (isTauri()) {
+    try {
+      await writeNativeText(content);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   // 方案一：标准剪贴板 API
   try {
@@ -70,6 +84,13 @@ function legacyCopy(content: string): boolean {
  * 读取剪贴板文本。浏览器策略可能拒绝读取，失败时返回空串。
  */
 export async function readText(): Promise<string> {
+  if (isTauri()) {
+    try {
+      return await readNativeText();
+    } catch {
+      return "";
+    }
+  }
   try {
     if (navigator?.clipboard?.readText) {
       return await navigator.clipboard.readText();
@@ -85,7 +106,9 @@ export async function readText(): Promise<string> {
  * 「导出终端输出」这类操作由后端完成，这里只负责把路径交给 `shell` 插件。
  */
 export function isClipboardAvailable(): boolean {
-  return typeof navigator !== "undefined" && !!navigator.clipboard;
+  return (
+    isTauri() || (typeof navigator !== "undefined" && !!navigator.clipboard)
+  );
 }
 
 /** 把一段纯文本转成 HTML 预览片段（保留换行与转义） */

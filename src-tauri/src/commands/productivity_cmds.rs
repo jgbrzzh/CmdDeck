@@ -113,6 +113,9 @@ pub async fn preflight_preset(
         }
         let (program, argv) = opt.resolve();
         let command = join_command_line(&program, &argv);
+        if let Err(e) = crate::security::check_executable(&program, &directory, &st.settings()) {
+            check(&mut items, "error", e.to_string());
+        }
         if executable_exists(&program, &directory, &opt.env, &opt.runtime) {
             check(&mut items, "ok", format!("解释器 / 程序可用：{program}"));
         } else {
@@ -129,7 +132,11 @@ pub async fn preflight_preset(
             check(&mut items, "warning", "执行时仍需二次确认");
         }
         if opt.elevated && !super::system_cmds::is_elevated()? {
-            check(&mut items, "error", "此命令需要以管理员身份启动 CmdDeck");
+            check(
+                &mut items,
+                "warning",
+                "此命令将请求 UAC，仅该任务以管理员身份运行",
+            );
         }
         if ["exe", "custom"].contains(&opt.kind.as_str()) && !st.settings().allow_unknown_exe {
             check(&mut items, "error", "设置尚未允许自定义 exe");

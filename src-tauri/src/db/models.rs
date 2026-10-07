@@ -951,6 +951,12 @@ pub struct AppSettings {
     pub confirm_dangerous: bool,
     /// 允许运行未在白名单内的 exe
     pub allow_unknown_exe: bool,
+    /// 默认只读；开启后交互输入不经命令黑名单，不作为沙箱。
+    #[serde(default)]
+    pub allow_interactive_input: bool,
+    /// 非空时，所有执行类型都必须匹配完整规范路径。
+    #[serde(default)]
+    pub allowed_executables: Vec<String>,
     /// 记录审计日志
     pub audit_enabled: bool,
     /// 终端历史记录开关
@@ -1001,6 +1007,8 @@ impl Default for AppSettings {
 
             confirm_dangerous: true,
             allow_unknown_exe: false,
+            allow_interactive_input: false,
+            allowed_executables: Vec::new(),
             audit_enabled: true,
             history_enabled: true,
             history_limit: 500,

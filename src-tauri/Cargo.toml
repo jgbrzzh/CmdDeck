@@ -1,7 +1,7 @@
 [package]
 # CmdDeck —— Windows 控制台集中管理中心（Rust 后端）
 name = "cmddeck"
-version = "1.2.0"
+version = "1.2.1"
 description = "CmdDeck - Windows 控制台集中管理中心"
 authors = ["CmdDeck"]
 edition = "2021"
@@ -59,6 +59,7 @@ thiserror = "2"                               # 声明式错误类型
 log = "0.4"                                   # 轻量日志门面
 reqwest = { version = "0.13", default-features = false, features = ["json", "native-tls", "system-proxy"] }
 semver = "1"
+tauri-plugin-clipboard-manager = "2"
 
 [features]
 # 默认构建不需要额外特性位；保留一个开关位方便后续扩展
@@ -67,6 +68,6 @@ custom-protocol = ["tauri/custom-protocol"]
 debug = 0
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_System_JobObjects", "Win32_System_ProcessStatus", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_System_JobObjects", "Win32_System_ProcessStatus", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_UI_Shell", "Win32_System_Registry", "Win32_System_Com"] }
 tauri-winrt-notification = "0.8"
 windows-registry = "0.6"

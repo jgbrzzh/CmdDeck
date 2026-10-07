@@ -9,17 +9,15 @@
 
 use std::path::{Path, PathBuf};
 
-use rusqlite::params;
 use serde_json::json;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_autostart::ManagerExt as AutoStartExt;
 use tauri_plugin_opener::OpenerExt;
 
 use crate::db::models::{
-    now_ms, AppInfo, AppSettings, ExportBundle, ImportMode, ImportReport, Schedule, ShellOption,
-    Workflow,
+    now_ms, AppInfo, AppSettings, ExportBundle, ImportMode, ImportReport, ShellOption,
 };
-use crate::db::{groups, presets, schedules, to_json, workflows};
+use crate::db::{groups, presets, schedules, workflows};
 use crate::error::{AppError, AppResult};
 use crate::state::{AppState, EV_PRESET_CHANGED, EV_SETTINGS_CHANGED};
 
@@ -34,6 +32,22 @@ fn app_version() -> String {
 // ============================================================
 // 关于 / 设置
 // ============================================================
+/// 第二窗口复用本机数据目录，避免 WebView2 默认目录与主窗口不一致。
+#[tauri::command]
+pub async fn create_work_window(app: AppHandle) -> AppResult<String> {
+    let label = format!("deck-{}", uuid::Uuid::new_v4());
+    let directory = app.state::<AppState>().sub_dir("webview")?;
+    tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
+        .title("CmdDeck · 工作窗口")
+        .inner_size(1280.0, 800.0)
+        .min_inner_size(1024.0, 620.0)
+        .data_directory(directory)
+        .icon(tauri::include_image!("icons/128x128.png"))
+        .map_err(|e| AppError::exec(e.to_string()))?
+        .build()
+        .map_err(|e| AppError::exec(format!("新窗口失败：{e}")))?;
+    Ok(label)
+}
 
 /// 应用信息（「关于」弹窗用）
 #[tauri::command]
@@ -61,6 +75,15 @@ pub fn get_settings(state: State<'_, AppState>) -> AppResult<AppSettings> {
 
 /// 校验设置，返回中文错误（`Ok(())` 表示通过）
 pub(crate) fn validate_settings(s: &AppSettings) -> AppResult<()> {
+    if s.allowed_executables.len() > 100
+        || s.allowed_executables
+            .iter()
+            .any(|p| !Path::new(p).is_absolute() || p.contains('\0'))
+    {
+        return Err(AppError::validation(
+            "执行白名单最多 100 项，每项必须是完整绝对路径",
+        ));
+    }
     if !(8..=48).contains(&s.font_size) {
         return Err(AppError::validation(format!(
             "终端字号必须在 8 到 48 之间，当前是 {}",
@@ -338,223 +361,39 @@ pub fn import_data(
         },
     };
 
-    crate::productivity::validate(&bundle.productivity)?;
-    validate_settings(&bundle.settings)?;
-    crate::backups::snapshot(&state)?;
-    let mut report = ImportReport {
-        groups_added: 0,
-        groups_updated: 0,
-        presets_added: 0,
-        presets_updated: 0,
-        workflows_added: 0,
-        schedules_added: 0,
-        warnings: Vec::new(),
-        settings_imported: false,
-    };
-
-    if mode == ImportMode::Replace {
-        presets::clear(&state.db)?;
-        groups::clear(&state.db)?;
-        clear_automation(&state.db)?;
-    }
-
-    // ---- 分组必须先于预设导入，否则预设挂不到分组上 ----
-    let mut known_groups: Vec<String> =
-        groups::list(&state.db)?.into_iter().map(|g| g.id).collect();
-
-    for mut g in bundle.groups {
-        if g.name.trim().is_empty() {
-            report
-                .warnings
-                .push(format!("分组「{}」没有名称，已跳过", g.id));
-            continue;
-        }
-        if g.id.trim().is_empty() {
-            g.id = crate::db::models::new_id();
-        }
-        let existed = groups::exists(&state.db, &g.id)?;
-        if mode == ImportMode::Append && existed {
-            continue;
-        }
-        groups::save(&state.db, &g)?;
-        if existed {
-            report.groups_updated += 1;
-        } else {
-            report.groups_added += 1;
-        }
-        if !known_groups.contains(&g.id) {
-            known_groups.push(g.id);
-        }
-    }
-
-    // ---- 预设 ----
-    for mut p in bundle.presets {
-        if p.name.trim().is_empty() {
-            report
-                .warnings
-                .push(format!("有一条预设没有名称（ID：{}），已跳过", p.id));
-            continue;
-        }
-        if p.id.trim().is_empty() {
-            p.id = crate::db::models::new_id();
-        }
-        // 指向不存在分组的预设：降级成"未分组"，别让左侧导航出现幽灵分组
-        if !p.group_id.trim().is_empty() && !known_groups.contains(&p.group_id) {
-            report
-                .warnings
-                .push(format!("预设「{}」所属分组不存在，已放入未分组", p.name));
-            p.group_id = String::new();
-        }
-        let existed = presets::exists(&state.db, &p.id)?;
-        if mode == ImportMode::Append && existed {
-            continue;
-        }
-        if mode == ImportMode::Merge && existed {
-            p.updated_at = now_ms();
-        }
-        presets::save(&state.db, &p)?;
-        if existed {
-            report.presets_updated += 1;
-        } else {
-            report.presets_added += 1;
-        }
-    }
-
-    // ---- 工作流与定时任务（表结构由 backend-automation 定义，这里只做数据搬运）----
+    if state
+        .restoring
+        .swap(true, std::sync::atomic::Ordering::SeqCst)
     {
-        let conn = state.db.conn();
-        for w in bundle.workflows {
-            if w.name.trim().is_empty() || w.id.trim().is_empty() {
-                report
-                    .warnings
-                    .push("有一条工作流缺少名称或 ID，已跳过".to_string());
-                continue;
-            }
-            let existed: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM workflows WHERE id = ?1",
-                    params![w.id],
-                    |r| r.get(0),
-                )
-                .unwrap_or(0);
-            if mode == ImportMode::Append && existed > 0 {
-                continue;
-            }
-            upsert_workflow(&conn, &w)?;
-            if existed == 0 {
-                report.workflows_added += 1;
-            }
-        }
-        for s in bundle.schedules {
-            if s.name.trim().is_empty() || s.id.trim().is_empty() {
-                report
-                    .warnings
-                    .push("有一条定时任务缺少名称或 ID，已跳过".to_string());
-                continue;
-            }
-            let existed: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM schedules WHERE id = ?1",
-                    params![s.id],
-                    |r| r.get(0),
-                )
-                .unwrap_or(0);
-            if mode == ImportMode::Append && existed > 0 {
-                continue;
-            }
-            upsert_schedule(&conn, &s)?;
-            if existed == 0 {
-                report.schedules_added += 1;
-            }
+        return Err(AppError::validation("正在导入或恢复配置，请稍后再试"));
+    }
+    struct Guard<'a>(&'a std::sync::atomic::AtomicBool);
+    impl Drop for Guard<'_> {
+        fn drop(&mut self) {
+            self.0.store(false, std::sync::atomic::Ordering::SeqCst);
         }
     }
-
-    // ---- 设置：只有"覆盖"模式才动，免得合并几���预设把用户的外观设置也覆盖掉 ----
-    if mode == ImportMode::Replace {
-        crate::productivity::save(&state.db, &bundle.productivity)?;
-        let mut incoming = bundle.settings;
-        validate_settings(&incoming)?;
-        incoming.data_dir = state.data_dir.to_string_lossy().to_string();
-        // 引导页只该走一次：导入旧配置时如果带回 first_run_done=false，
-        // 下次启动又会弹出欢迎流程
-        incoming.first_run_done = true;
-        state.set_settings(&incoming)?;
-        report.settings_imported = true;
-    } else {
-        report
-            .warnings
-            .push("合并/追加模式不会导入设置，当前设置已保留".to_string());
+    let _guard = Guard(&state.restoring);
+    if state.pty.list().iter().any(|s| s.status == "running")
+        || !state.active_workflows.read().is_empty()
+    {
+        return Err(AppError::validation("请先停止任务，再导入配置"));
     }
-
-    state.emit(&app, EV_PRESET_CHANGED, json!({ "reason": "imported" }));
-    state.emit(&app, EV_SETTINGS_CHANGED, state.settings());
+    let current = crate::backups::bundle(&state)?;
+    let (mut candidate, report) = crate::importing::plan(current, bundle, mode)?;
+    candidate.settings.data_dir = state.data_dir.to_string_lossy().into_owned();
+    candidate.settings.first_run_done = true;
+    crate::backups::snapshot(&state)?;
+    crate::backups::replace_configuration(&state.db, &candidate, mode == ImportMode::Replace)?;
+    *state.settings.write() = candidate.settings.clone();
+    state.emit(&app, EV_PRESET_CHANGED, json!({"reason":"imported"}));
+    state.emit(&app, EV_SETTINGS_CHANGED, candidate.settings);
+    state.emit(
+        &app,
+        "cmddeck://productivity-changed",
+        candidate.productivity,
+    );
     Ok(report)
-}
-
-/// 清空工作流与定时任务（导入"覆盖"模式用）
-fn clear_automation(db: &crate::db::Db) -> AppResult<()> {
-    let conn = db.conn();
-    conn.execute("DELETE FROM workflow_runs", [])?;
-    conn.execute("DELETE FROM workflows", [])?;
-    conn.execute("DELETE FROM schedules", [])?;
-    Ok(())
-}
-
-/// 写一条工作流（存在则整行覆盖）
-fn upsert_workflow(conn: &rusqlite::Connection, w: &Workflow) -> AppResult<()> {
-    conn.execute(
-        "INSERT INTO workflows (id, name, description, run_mode, continue_on_error, steps, \
-         enabled, created_at, updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9) \
-         ON CONFLICT(id) DO UPDATE SET \
-           name=excluded.name, description=excluded.description, run_mode=excluded.run_mode, \
-           continue_on_error=excluded.continue_on_error, steps=excluded.steps, \
-           enabled=excluded.enabled, updated_at=excluded.updated_at",
-        params![
-            w.id,
-            w.name,
-            w.description,
-            w.run_mode,
-            if w.continue_on_error { 1i64 } else { 0i64 },
-            to_json(&w.steps),
-            if w.enabled { 1i64 } else { 0i64 },
-            w.created_at,
-            now_ms(),
-        ],
-    )?;
-    Ok(())
-}
-
-/// 写一条定时任务（存在则整行覆盖）
-fn upsert_schedule(conn: &rusqlite::Connection, s: &Schedule) -> AppResult<()> {
-    conn.execute(
-        "INSERT INTO schedules (id, name, preset_id, args, mode, interval_minutes, time, \
-         weekdays, date, enabled, next_run_at, last_run_at, last_status, created_at, updated_at) \
-         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15) \
-         ON CONFLICT(id) DO UPDATE SET \
-           name=excluded.name, preset_id=excluded.preset_id, args=excluded.args, \
-           mode=excluded.mode, interval_minutes=excluded.interval_minutes, time=excluded.time, \
-           weekdays=excluded.weekdays, date=excluded.date, enabled=excluded.enabled, \
-           last_run_at=excluded.last_run_at, last_status=excluded.last_status, \
-           updated_at=excluded.updated_at",
-        params![
-            s.id,
-            s.name,
-            s.preset_id,
-            to_json(&s.args),
-            s.mode,
-            s.interval_minutes,
-            s.time,
-            to_json(&s.weekdays),
-            s.date,
-            if s.enabled { 1i64 } else { 0i64 },
-            s.next_run_at,
-            s.last_run_at,
-            s.last_status,
-            s.created_at,
-            now_ms(),
-        ],
-    )?;
-    Ok(())
 }
 
 // ============================================================
@@ -572,7 +411,7 @@ pub fn get_integration_status(
         .is_enabled()
         .map_err(|e| AppError::other(e.to_string()))?;
     Ok(
-        json!({"autostart":autostart,"tray":app.tray_by_id("cmddeck-tray").is_some(),"scheduler":state.scheduler_running.load(std::sync::atomic::Ordering::SeqCst)}),
+        json!({"autostart":autostart,"hotkey":state.shortcut.read().clone(),"warnings":state.integration_warnings.lock().clone(),"tray":app.tray_by_id("cmddeck-tray").is_some(),"scheduler":state.scheduler_running.load(std::sync::atomic::Ordering::SeqCst)}),
     )
 }
 

@@ -3,8 +3,11 @@
 pub mod backups;
 pub mod commands;
 pub mod db;
+#[cfg(windows)]
+pub mod elevated;
 pub mod environments;
 pub mod error;
+pub mod importing;
 pub mod monitor;
 pub mod notifications;
 pub mod productivity;
@@ -40,6 +43,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--minimized"]),
@@ -94,7 +98,11 @@ pub fn run() {
                 let mgr = app.autolaunch();
                 let enabled = mgr.is_enabled().unwrap_or(false);
                 if want != enabled {
-                    let _ = if want { mgr.enable() } else { mgr.disable() };
+                    if let Err(e) = if want { mgr.enable() } else { mgr.disable() } {
+                        st.integration_warnings
+                            .lock()
+                            .push(format!("恢复开机启动设置失败：{e}；请在设置中重试"));
+                    }
                 }
             }
 
@@ -189,6 +197,7 @@ pub fn run() {
             commands::workflow_cmds::cancel_workflow,
             // 设置 / 系统
             commands::system_cmds::get_app_info,
+            commands::system_cmds::create_work_window,
             commands::system_cmds::get_settings,
             commands::system_cmds::save_settings,
             commands::system_cmds::reset_settings,
@@ -279,5 +288,6 @@ pub fn bootstrap_hotkey(app: &tauri::AppHandle) {
     let acc = state.settings().global_hotkey.clone();
     if let Err(err) = apply_global_hotkey(app, &state, &acc) {
         log::warn!("启动时注册全局快捷键失败：{err}");
+        state.integration_warnings.lock().push(err.to_string());
     }
 }

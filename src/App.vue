@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PresetIcon from "@/components/common/PresetIcon.vue";
 // 界面通过 Tauri IPC 连接 Rust；浏览器预览不执行本地命令。
 import {
   computed,
@@ -8,7 +9,6 @@ import {
   ref,
   watch,
 } from "vue";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   auditApi,
@@ -21,7 +21,12 @@ import {
   workflowApi,
   toFriendlyError,
 } from "@/api";
-import { onQuickLaunch, onPresetChanged, onWorkflowUpdate } from "@/api/events";
+import {
+  onQuickLaunch,
+  onPresetChanged,
+  onWorkflowUpdate,
+  onSettingsChanged,
+} from "@/api/events";
 import { usePresetStore, ALL_KEY } from "@/stores/presets";
 import { useSettingsStore } from "@/stores/settings";
 import { useTerminalStore } from "@/stores/terminals";
@@ -103,6 +108,19 @@ const schedules = ref<Schedule[]>([]),
 const logs = ref<AuditLog[]>([]),
   history = ref<TerminalHistory[]>([]),
   blacklistText = ref("");
+const allowedExecutableText = ref("");
+async function confirmInteractive() {
+  if (
+    ss.settings.allowInteractiveInput &&
+    !(await ui.confirm({
+      title: "开启交互输入",
+      message:
+        "直接输入和粘贴不受预设黑名单检查。仅在信任该终端和运行程序时开启。",
+      danger: true,
+    }))
+  )
+    ss.settings.allowInteractiveInput = false;
+}
 const pages = [
   { id: "projects", label: "项目工作区", icon: "▣" },
   { id: "presets", label: "预设指令", icon: "⌘" },
@@ -311,7 +329,7 @@ async function execute() {
       v = await securityApi.check(p, values);
     if (v.level === "blocked") throw new Error(v.reasons.join("；"));
     let confirmed = false;
-    if (v.requiresConfirm || p.confirm) {
+    if (v.requiresConfirm || p.confirm || p.elevated) {
       confirmed = await ui.confirm({
         title: "确认执行命令",
         message: v.reasons.join("；") || "此预设要求二次确认",
@@ -433,6 +451,10 @@ async function saveSchedule() {
 }
 async function saveSettings() {
   await attempt(async () => {
+    ss.settings.allowedExecutables = allowedExecutableText.value
+      .split("\n")
+      .map((p) => p.trim())
+      .filter(Boolean);
     ss.settings.blacklist = blacklistText.value
       .split("\n")
       .map((s) => s.trim())
@@ -485,16 +507,8 @@ async function importConfig() {
     }
   });
 }
-function newWindow() {
-  const win = new WebviewWindow(`deck-${crypto.randomUUID()}`, {
-    url: "index.html",
-    title: "CmdDeck · 工作窗口",
-    width: 1280,
-    height: 800,
-  });
-  void win.once("tauri://error", (e) =>
-    ui.toast("error", "新窗口失败", String(e.payload)),
-  );
+async function newWindow() {
+  await attempt(() => systemApi.newWindow());
 }
 async function finishWelcome() {
   await attempt(async () => {
@@ -592,11 +606,19 @@ onMounted(async () => {
     await ss.load();
     await productivity.load();
     blacklistText.value = ss.settings.blacklist.join("\n");
+    allowedExecutableText.value = ss.settings.allowedExecutables.join("\n");
     await ps.load();
     ps.activeGroupId = ALL_KEY;
     cleanups.push(await ts.init());
     cleanups.push(await onQuickLaunch(() => (quick.value = true)));
     cleanups.push(await onPresetChanged(() => void ps.load()));
+    cleanups.push(
+      await onSettingsChanged((settings) => {
+        ss.patchLocal(settings);
+        blacklistText.value = settings.blacklist.join("\n");
+        allowedExecutableText.value = settings.allowedExecutables.join("\n");
+      }),
+    );
     cleanups.push(
       await listen<{ sessionId: string }>(
         "cmddeck://notification-click",
@@ -609,9 +631,7 @@ onMounted(async () => {
             if (info) {
               const workspaceId = info.workspaceId || "";
               productivity.config.activeWorkspace =
-                productivity.config.workspaces.some(
-                  (w) => w.id === workspaceId,
-                )
+                productivity.config.workspaces.some((w) => w.id === workspaceId)
                   ? workspaceId
                   : "";
               await ts.attach(info, await terminalApi.snapshot(info.sessionId));
@@ -644,6 +664,15 @@ onMounted(async () => {
     }
     welcome.value = !ss.settings.firstRunDone;
     ready.value = true;
+    void systemApi
+      .integrationStatus()
+      .then((status) => {
+        for (const warning of status.warnings || [])
+          ui.toast("warning", "系统集成未完成", warning);
+      })
+      .catch((e) =>
+        ui.toast("warning", "系统集成状态读取失败", toFriendlyError(e).message),
+      );
   } catch (e) {
     failure.value = toFriendlyError(e).message;
   }
@@ -789,16 +818,7 @@ onBeforeUnmount(() => {
                   type="checkbox"
                   :value="p.id"
                   :aria-label="`选择 ${p.name}`"
-                /><span class="kind-icon">{{
-                  p.kind === "powershell"
-                    ? "PS"
-                    : p.kind === "python"
-                      ? "Py"
-                      : p.kind === "node"
-                        ? "JS"
-                        : "›_"
-                }}</span
-                ><strong>{{ p.name }}</strong
+                /><PresetIcon :name="p.icon" /><strong>{{ p.name }}</strong
                 ><button
                   class="icon-button"
                   :class="{ gold: p.favorite }"
@@ -1068,6 +1088,17 @@ onBeforeUnmount(() => {
               />允许自定义 exe</label
             ><label class="check"
               ><input
+                v-model="ss.settings.allowInteractiveInput"
+                type="checkbox"
+                @change="confirmInteractive"
+              />允许交互输入（默认只读）</label
+            ><label class="wide"
+              >执行白名单（完整程序路径，每行一项；留空不限制）<textarea
+                v-model="allowedExecutableText"
+                rows="3"
+              /></label
+            ><label class="check"
+              ><input
                 v-model="ss.settings.auditEnabled"
                 type="checkbox"
               />记录审计日志</label
@@ -1088,7 +1119,7 @@ onBeforeUnmount(() => {
             ><button @click="importConfig">导入 JSON（合并）</button
             ><button @click="openDataDir()">打开数据目录</button>
           </div>
-          <p class="muted">管理员预设需要先以管理员身份启动 CmdDeck。</p>
+          <p class="muted">管理员预设运行时请求 UAC，主窗口保持普通权限。</p>
           <code>{{ ss.settings.dataDir }}</code></template
         >
       </section>
@@ -1291,7 +1322,7 @@ onBeforeUnmount(() => {
         >
         <p v-if="verdictText" class="warning">{{ verdictText }}</p>
         <p v-if="runPreset.elevated" class="warning">
-          需要以管理员身份启动 CmdDeck
+          此任务将请求 UAC；取消授权不会运行命令
         </p>
         <div class="actions">
           <button type="button" @click="runPreset = null">取消</button
