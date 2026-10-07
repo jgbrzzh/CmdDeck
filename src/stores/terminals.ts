@@ -40,6 +40,7 @@ import type {
   TerminalTab,
 } from "@/types";
 import { useUiStore } from "./ui";
+import type { SavedTab } from "@/types/productivity";
 
 /** 单个标签页输出缓冲上限：1MB 字符 */
 const MAX_BUFFER = 1024 * 1024;
@@ -71,6 +72,7 @@ export interface TerminalStore {
   openRaw(options: SpawnOptions): Promise<string>;
   /** 打开一个已有会话（从历史记录恢复现场），返回 sessionId */
   attach(info: TerminalInfo, snapshot: string): Promise<string>;
+  restoreTabs(saved: SavedTab[], workspaceId?: string): void;
 
   // ---- 交互 ----
   write(id: string, data: string): void;
@@ -93,6 +95,31 @@ export interface TerminalStore {
 // ============================================================
 
 const tabs = ref<TerminalTab[]>([]);
+function restoreTabs(saved: SavedTab[], workspaceId = ""): void {
+  for (const t of saved.slice(0, 64))
+    pushTab(
+      toTab(
+        {
+          workspaceId,
+          sessionId: `restored-${crypto.randomUUID()}`,
+          title: t.title,
+          presetId: t.presetId,
+          presetName: "",
+          kind: t.kind,
+          command: "",
+          cwd: t.cwd,
+          startedAt: 0,
+          status: "exited",
+          exitCode: null,
+          cols: 120,
+          rows: 30,
+          elevated: false,
+          temporary: false,
+        },
+        `\r\n[已恢复布局，命令尚未执行]\r\n工作目录：${t.cwd}\r\n请使用“重新运行预设”或新建 Shell。\r\n`,
+      ),
+    );
+}
 const activeId = ref("");
 
 /** TerminalView 注册的 fit 回调表 */
@@ -202,6 +229,11 @@ function scheduleFit(id: string): void {
 
 /** 新建 tab 并设为激活项 */
 function pushTab(tab: TerminalTab): TerminalTab {
+  const existing = byId(tab.sessionId);
+  if (existing) {
+    activeId.value = existing.sessionId;
+    return existing;
+  }
   tabs.value = [...tabs.value, tab];
   activeId.value = tab.sessionId;
   return tab;
@@ -258,6 +290,7 @@ async function init(): Promise<() => void> {
 
       tab.status = p.status === "killed" ? "killed" : "exited";
       tab.exitCode = p.exitCode;
+      tab.endedAt = Date.now();
 
       const code = p.exitCode === null ? "未知" : String(p.exitCode);
       const text = tab.stoppedByUser
@@ -591,6 +624,7 @@ const store: TerminalStore = {
   openShell,
   openRaw,
   attach,
+  restoreTabs,
 
   write,
   resize,

@@ -12,11 +12,13 @@ pub fn list_schedules(state: State<'_, AppState>) -> AppResult<Vec<Schedule>> {
 }
 #[tauri::command]
 pub fn save_schedule(state: State<'_, AppState>, schedule: Schedule) -> AppResult<Schedule> {
+    crate::backups::snapshot(&state)?;
     presets::get(&state.db, &schedule.preset_id)?;
     schedules::save(&state.db, &schedule)
 }
 #[tauri::command]
 pub fn delete_schedule(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    crate::backups::snapshot(&state)?;
     schedules::delete(&state.db, &id)
 }
 #[tauri::command]
@@ -25,6 +27,7 @@ pub fn set_schedule_enabled(
     id: String,
     enabled: bool,
 ) -> AppResult<()> {
+    crate::backups::snapshot(&state)?;
     schedules::set_enabled(&state.db, &id, enabled)
 }
 fn fire(app: &AppHandle, s: &Schedule) -> AppResult<String> {

@@ -5,12 +5,14 @@
  * 关键设计：**用 `v-show` 而不是 `v-if` 渲染每个终端视图**。
  * `v-if` 会在切换标签时销毁/重建 `TerminalView`，xterm 实例随之 dispose，
  * 用户会丢失：滚动位置、搜索高亮、输入法状态，PTY 里已输出但还没被读走的数据也可能闪一下。
- * `v-show` 只切 `display`，所有实例常驻，切标签是零成本���。
+ * `v-show` 只切 `display`，所有实例常驻，切标签无需重建终端。
  *
  * 无 props / 无 emits。
  */
 
-import { computed } from "vue";
+import { computed, watch } from "vue";
+import { useProductivityStore } from "@/stores/productivity";
+import { productivityApi } from "@/api/productivity";
 
 import { usePresetStore } from "@/stores/presets";
 import { useSettingsStore } from "@/stores/settings";
@@ -27,11 +29,89 @@ const terminalStore = useTerminalStore();
 const presetStore = usePresetStore();
 const settingsStore = useSettingsStore();
 const uiStore = useUiStore();
+const productivity = useProductivityStore();
+const secondary = computed(
+  () =>
+    tabs.value.find(
+      (t) =>
+        t.sessionId === productivity.secondaryId.value &&
+        t.sessionId !== activeId.value,
+    )?.sessionId ||
+    tabs.value.filter((t) => t.sessionId !== activeId.value).at(-1)
+      ?.sessionId ||
+    "",
+);
+const split = computed(
+  () => productivity.layoutMode.value !== "single" && !!secondary.value,
+);
+async function saveLayout() {
+  try {
+    const layout = {
+      mode: productivity.layoutMode.value,
+      tabs: tabs.value.map((t) => ({
+        title: t.title,
+        kind: t.kind,
+        cwd: t.cwd,
+        presetId: t.presetId,
+      })),
+      active: tabs.value.findIndex((t) => t.sessionId === activeId.value),
+      secondary: tabs.value.findIndex((t) => t.sessionId === secondary.value),
+    };
+    await productivityApi.layout(
+      productivity.config.value.activeWorkspace,
+      layout,
+    );
+    productivity.config.value.layouts[
+      productivity.config.value.activeWorkspace
+    ] = layout;
+    uiStore.toast("success", "终端布局已保存");
+  } catch (e) {
+    uiStore.toast("error", "布局保存失败", String(e));
+  }
+}
+function changeSplit() {
+  window.setTimeout(() => terminalStore.fitAll(), 50);
+}
+function selectSecondary(event: Event) {
+  productivity.secondaryId.value = (event.target as HTMLSelectElement).value;
+  changeSplit();
+}
 
 /** 全部标签（顺序 = 打开顺序） */
-const tabs = computed<TerminalTab[]>(() => terminalStore.tabs.value);
+const tabs = computed<TerminalTab[]>(() =>
+  terminalStore.tabs.value.filter(
+    (t) => (t.workspaceId || "") === productivity.config.value.activeWorkspace,
+  ),
+);
 const activeId = computed<string>(() => terminalStore.activeId.value);
 const empty = computed<boolean>(() => tabs.value.length === 0);
+watch(() => productivity.layoutMode.value, changeSplit);
+watch(() => secondary.value, changeSplit);
+watch(
+  () => productivity.config.value.activeWorkspace,
+  () => {
+    const id = productivity.config.value.activeWorkspace,
+      l = productivity.config.value.layouts[id];
+    if (!tabs.value.length && l && productivity.config.value.restoreLayout) {
+      terminalStore.restoreTabs(l.tabs, id);
+      productivity.layoutMode.value = l.mode;
+      productivity.secondaryId.value = tabs.value[l.secondary]?.sessionId || "";
+    }
+    terminalStore.setActive(tabs.value[l?.active || 0]?.sessionId || "");
+    changeSplit();
+  },
+  { immediate: true },
+);
+watch(
+  () => terminalStore.activeId.value,
+  () => {
+    if (
+      tabs.value.length &&
+      !tabs.value.some((t) => t.sessionId === terminalStore.activeId.value)
+    )
+      terminalStore.setActive(tabs.value[0].sessionId);
+  },
+);
 
 // ============================================================
 // 空状态动作
@@ -64,15 +144,65 @@ function runPreset(): void {
     <template v-if="!empty">
       <TerminalTabs />
       <TerminalToolbar />
+      <div class="layout-tools">
+        <select v-model="productivity.layoutMode.value" aria-label="终端分屏">
+          <option value="single">单终端</option>
+          <option value="columns">左右分屏</option>
+          <option value="rows">上下分屏</option></select
+        ><select
+          v-if="split"
+          :value="secondary"
+          @change="selectSecondary"
+          aria-label="第二终端"
+        >
+          <option
+            v-for="tab in tabs.filter((t) => t.sessionId !== activeId)"
+            :key="tab.sessionId"
+            :value="tab.sessionId"
+          >
+            {{ tab.title }}
+          </option></select
+        ><button @click="saveLayout">保存布局</button
+        ><button
+          v-if="terminalStore.activeTab.value?.presetId"
+          @click="
+            uiStore.openDialog(
+              'runParams',
+              presetStore.byId(terminalStore.activeTab.value.presetId),
+            )
+          "
+        >
+          重新运行预设
+        </button>
+      </div>
     </template>
 
     <!-- 终端主体：全部实例常驻，仅切换 display -->
-    <div class="cd-workspace__body">
+    <div
+      class="cd-workspace__body"
+      :class="{
+        'split-columns': split && productivity.layoutMode.value === 'columns',
+        'split-rows': split && productivity.layoutMode.value === 'rows',
+      }"
+    >
       <div
-        v-for="tab in tabs"
-        v-show="tab.sessionId === activeId"
+        v-for="tab in terminalStore.tabs.value"
+        v-show="
+          (tab.workspaceId || '') ===
+            productivity.config.value.activeWorkspace &&
+          (tab.sessionId === activeId || (split && tab.sessionId === secondary))
+        "
         :key="tab.sessionId"
         class="cd-workspace__pane"
+        :class="{
+          'pane-primary': tab.sessionId === activeId,
+          'pane-secondary': tab.sessionId === secondary,
+        }"
+        @mousedown="
+          tab.sessionId === secondary &&
+          ((productivity.secondaryId.value = activeId),
+          terminalStore.setActive(tab.sessionId))
+        "
       >
         <TerminalView :tab="tab" />
       </div>
@@ -144,5 +274,39 @@ function runPreset(): void {
   gap: var(--space-2, 8px);
   justify-content: center;
   flex-wrap: wrap;
+}
+.layout-tools {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-default);
+}
+.split-columns,
+.split-rows {
+  display: grid;
+  gap: 2px;
+  background: var(--border-default);
+}
+.split-columns {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "primary secondary";
+}
+.split-rows {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "primary" "secondary";
+}
+.split-columns .cd-workspace__pane,
+.split-rows .cd-workspace__pane {
+  position: relative;
+  inset: auto;
+  overflow: hidden;
+  background: var(--bg-app);
+}
+.pane-primary {
+  grid-area: primary;
+}
+.pane-secondary {
+  grid-area: secondary;
 }
 </style>

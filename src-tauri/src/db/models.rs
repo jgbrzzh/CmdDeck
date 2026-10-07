@@ -505,6 +505,8 @@ fn quote_if_needed(s: &str) -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TerminalInfo {
+    #[serde(default)]
+    pub workspace_id: String,
     pub session_id: String,
     pub title: String,
     #[serde(default)]
@@ -518,6 +520,8 @@ pub struct TerminalInfo {
     #[serde(default)]
     pub cwd: String,
     pub started_at: i64,
+    #[serde(default)]
+    pub ended_at: i64,
     /// `running` / `exited` / `killed`
     pub status: String,
     /// 退出码，None 表示还在运行
@@ -1082,6 +1086,8 @@ pub struct ImportReport {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ExportBundle {
+    #[serde(default)]
+    pub productivity: crate::productivity::Productivity,
     /// 文件格式版本号
     pub version: String,
     pub exported_at: i64,

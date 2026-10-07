@@ -1,9 +1,13 @@
 //! CmdDeck 应用入口：装配插件、注册命令、初始化托盘与全局快捷键。
 
+pub mod backups;
 pub mod commands;
 pub mod db;
 pub mod environments;
 pub mod error;
+pub mod monitor;
+pub mod notifications;
+pub mod productivity;
 pub mod pty;
 pub mod security;
 pub mod seed;
@@ -117,6 +121,24 @@ pub fn run() {
         })
         // ---- 注册全部前端命令 ----
         .invoke_handler(tauri::generate_handler![
+            commands::productivity_cmds::get_productivity,
+            commands::productivity_cmds::save_productivity,
+            commands::productivity_cmds::save_terminal_layout,
+            commands::productivity_cmds::preflight_preset,
+            commands::productivity_cmds::list_task_metrics,
+            commands::productivity_cmds::list_listening_ports,
+            commands::productivity_cmds::open_local_service,
+            commands::productivity_cmds::list_config_backups,
+            commands::productivity_cmds::create_config_backup,
+            commands::productivity_cmds::restore_config_backup,
+            commands::productivity_cmds::preview_config_export,
+            commands::productivity_cmds::export_shared_config,
+            commands::productivity_cmds::get_history_output,
+            commands::productivity_cmds::list_log_entries,
+            commands::productivity_cmds::export_task_log,
+            commands::productivity_cmds::test_task_notification,
+            commands::productivity_cmds::check_for_updates,
+            commands::productivity_cmds::open_releases,
             commands::environment_cmds::discover_environments,
             commands::environment_cmds::open_environment_terminal,
             commands::environment_cmds::run_environment_action,

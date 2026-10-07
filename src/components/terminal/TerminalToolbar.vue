@@ -43,7 +43,9 @@ const running = computed<boolean>(() => tab.value?.status === "running");
 const elapsed = computed<string>(() => {
   const t = tab.value;
   if (!t) return "00:00:00";
-  return formatClock(Math.max(0, now.value - t.startedAt));
+  return t.startedAt > 0
+    ? formatClock(Math.max(0, (t.endedAt || now.value) - t.startedAt))
+    : "待运行";
 });
 
 /** 类型徽标文本 */

@@ -20,6 +20,7 @@ pub mod batch_cmds;
 pub mod environment_cmds;
 pub mod group_cmds;
 pub mod preset_cmds;
+pub mod productivity_cmds;
 pub mod schedule_cmds;
 pub mod security_cmds;
 pub mod seed_cmds;

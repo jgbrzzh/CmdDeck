@@ -1,0 +1,58 @@
+// 在真实 WebView 中检查分屏几何与恢复，不自动重跑恢复的命令。
+async (page) => {
+  const info=await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('get_app_info'));
+  if(!/[\\/]test-results[\\/]/.test(info.dataDir))throw new Error('只允许隔离数据目录');
+  const checks=[];
+  const check=(name,ok,detail='')=>{checks.push({name,ok,detail});if(!ok)throw new Error(name+': '+detail);};
+  await page.getByRole('button',{name:'⌘ 预设指令',exact:true}).click();
+  await page.getByRole('button',{name:'＋ CMD',exact:true}).click();
+  await page.getByRole('button',{name:'＋ PowerShell',exact:true}).click();
+  await page.getByRole('combobox',{name:'终端分屏',exact:true}).selectOption('columns');
+  await page.waitForTimeout(400);
+  const rects=()=>page.locator('.cd-workspace__pane:visible').evaluateAll(nodes=>nodes.map(n=>{const r=n.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};}));
+  let panes=await rects();
+  check('左右分屏真实布局',panes.length===2&&Math.abs(panes[0].y-panes[1].y)<2&&Math.abs(panes[0].x-panes[1].x)>100,JSON.stringify(panes));
+  await page.screenshot({path:'output/playwright/v12-split-columns.png'});
+  await page.getByRole('combobox',{name:'终端分屏',exact:true}).selectOption('rows');
+  await page.waitForTimeout(400);panes=await rects();
+  check('上下分屏真实布局',panes.length===2&&Math.abs(panes[0].x-panes[1].x)<2&&Math.abs(panes[0].y-panes[1].y)>60,JSON.stringify(panes));
+  await page.getByRole('button',{name:'保存布局',exact:true}).click();
+  const persisted=await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('get_productivity'));
+  check('GUI 布局持久化',persisted.layouts[persisted.activeWorkspace].mode==='rows');
+  await page.getByRole('button',{name:'◉ 任务与端口',exact:true}).click();
+  await page.getByRole('heading',{name:'任务与端口',exact:true}).waitFor();
+  await page.screenshot({path:'output/playwright/v12-tasks.png'});
+  check('任务面板可见',await page.getByText('TCP 监听端口',{exact:true}).isVisible());
+  const cross=await page.evaluate(async()=>{
+    const invoke=(cmd,args={})=>window.__TAURI_INTERNALS__.invoke(cmd,args);
+    const template=(await invoke('list_presets'))[0];
+    const preset=await invoke('save_preset',{preset:{...template,id:'',name:'V12 跨项目查看',kind:'powershell',program:'Write-Output CROSS_PROJECT_OK',args:[],workingDir:'',env:[],runtime:{kind:'',path:'',managerPath:''},confirm:false,elevated:false,useShell:true,placeholderArgs:[]}});
+    const info=await invoke('run_preset',{presetId:preset.id,args:{},confirmed:false,workspaceId:''});
+    await invoke('wait_terminal_exit',{sessionId:info.sessionId,timeoutMs:15000});
+    return info;
+  });
+  await page.getByRole('button',{name:'◉ 任务与端口',exact:true}).click();
+  await page.getByRole('button',{name:'刷新',exact:true}).click();
+  await page.locator('article').filter({hasText:cross.title}).getByRole('button',{name:'打开终端',exact:true}).click();
+  check('跨项目查看切换正确工作区',(await page.getByRole('combobox',{name:'当前项目',exact:true}).inputValue())==='');
+  await page.getByRole('combobox',{name:'当前项目',exact:true}).selectOption(persisted.activeWorkspace);
+  await page.getByRole('button',{name:'≡ 日志中心',exact:true}).click();
+  await page.getByRole('heading',{name:'日志中心',exact:true}).waitFor();
+  await page.locator('.log-entry').filter({hasText:'V12 工作区继承',has:page.locator('small')}).first().click();
+  await page.getByRole('textbox',{name:'搜索日志行',exact:true}).fill('WORKSPACE_OK');
+  await page.waitForTimeout(200);
+  check('日志搜索匹配输出',(await page.locator('.log-output').textContent()).includes('WORKSPACE_OK'));
+  await page.screenshot({path:'output/playwright/v12-logs.png'});
+  await page.getByRole('button',{name:'▤ 备份与分享',exact:true}).click();
+  await page.getByRole('heading',{name:'配置备份与分享',exact:true}).waitFor();
+  await page.getByRole('button',{name:'分享预设',exact:true}).click();
+  await page.locator('.export-preview').waitFor();
+  check('分享预览显示完整 JSON',(await page.locator('.export-preview').textContent()).includes('"presets"'));
+  await page.getByRole('button',{name:'取消',exact:true}).click();
+  await page.getByRole('button',{name:'↻ 更新与通知',exact:true}).click();
+  await page.getByRole('heading',{name:'更新与通知',exact:true}).waitFor();
+  check('网络失败时仍可打开下载页',await page.getByRole('button',{name:'打开下载页面',exact:true}).isVisible());
+  const sessions=await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('list_terminal_sessions'));
+  for(const s of sessions.filter(s=>s.status==='running'))await page.evaluate(id=>window.__TAURI_INTERNALS__.invoke('kill_terminal',{sessionId:id}),s.sessionId);
+  return {checks,savedWorkspace:persisted.activeWorkspace};
+}

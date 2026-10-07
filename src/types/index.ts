@@ -230,6 +230,8 @@ export interface SpawnOptions {
 
 /** 终端会话状态 */
 export interface TerminalInfo {
+  endedAt?: number;
+  workspaceId?: string;
   sessionId: string;
   title: string;
   presetId: string;
@@ -624,6 +626,11 @@ export interface Toast {
 
 /** 应用视图 */
 export type ViewName =
+  | "projects"
+  | "tasks"
+  | "logs"
+  | "backups"
+  | "updates"
   | "environments"
   | "presets"
   | "terminals"

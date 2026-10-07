@@ -21,6 +21,7 @@ pub fn list_groups(state: State<'_, AppState>) -> AppResult<Vec<Group>> {
 /// 重名会直接报 `Conflict`，因为左侧导航里两个同名文件夹用户根本分不清。
 #[tauri::command]
 pub fn save_group(app: AppHandle, state: State<'_, AppState>, group: Group) -> AppResult<Group> {
+    crate::backups::snapshot(&state)?;
     if group.name.trim().is_empty() {
         return Err(AppError::validation("分组名称不能为空"));
     }
@@ -61,6 +62,7 @@ pub fn save_group(app: AppHandle, state: State<'_, AppState>, group: Group) -> A
 /// 删除分组，返回被移出该分组的预设数量（前端据此提示"已把 N 条预设移到未分组"）
 #[tauri::command]
 pub fn delete_group(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<i32> {
+    crate::backups::snapshot(&state)?;
     let moved = groups::delete(&state.db, &id)?;
     state.emit(
         &app,

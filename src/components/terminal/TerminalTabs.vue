@@ -16,6 +16,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 
 import { usePresetStore } from "@/stores/presets";
 import { useTerminalStore } from "@/stores/terminals";
+import { useProductivityStore } from "@/stores/productivity";
 import { useUiStore } from "@/stores/ui";
 import type { TerminalTab } from "@/types";
 import { writeText } from "@/utils/clipboard";
@@ -58,7 +59,12 @@ interface MenuItem {
   shortcut?: string;
 }
 
-const tabs = computed<TerminalTab[]>(() => terminalStore.tabs.value);
+const productivity = useProductivityStore();
+const tabs = computed<TerminalTab[]>(() =>
+  terminalStore.tabs.value.filter(
+    (t) => (t.workspaceId || "") === productivity.config.value.activeWorkspace,
+  ),
+);
 const activeId = computed<string>(() => terminalStore.activeId.value);
 
 const menuItems = computed<MenuItem[]>(() => {
@@ -176,10 +182,12 @@ async function onMenuSelect(key: string): Promise<void> {
       await terminalStore.close(id);
       break;
     case "closeOthers":
-      await terminalStore.closeOthers(id);
+      for (const tab of tabs.value.filter((t) => t.sessionId !== id))
+        await terminalStore.close(tab.sessionId);
       break;
     case "closeFinished":
-      await terminalStore.closeFinished();
+      for (const tab of tabs.value.filter((t) => t.status !== "running"))
+        await terminalStore.close(tab.sessionId);
       break;
     default:
       break;
@@ -193,16 +201,17 @@ async function onMenuSelect(key: string): Promise<void> {
 /** 关闭全部标签（危险操作，二次确认） */
 async function closeAll(): Promise<void> {
   if (tabs.value.length === 0) return;
-  const running = terminalStore.runningCount.value;
+  const running = tabs.value.filter((t) => t.status === "running").length;
   const ok = await uiStore.confirm({
-    title: "关闭全部终端",
+    title: "关闭当前工作区的全部终端",
     message: `确定要关闭全部 ${tabs.value.length} 个标签页吗？`,
     detail:
       running > 0 ? `其中 ${running} 个仍在运行，关闭会强制终止对应进程。` : "",
     danger: true,
     confirmText: "全部关闭",
   });
-  if (ok) await terminalStore.closeAll();
+  if (ok)
+    for (const tab of [...tabs.value]) await terminalStore.close(tab.sessionId);
 }
 
 /** 用当前选中的预设新建一个标签 */

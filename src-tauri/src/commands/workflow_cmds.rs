@@ -10,10 +10,12 @@ pub fn list_workflows(state: State<'_, AppState>) -> AppResult<Vec<Workflow>> {
 }
 #[tauri::command]
 pub fn save_workflow(state: State<'_, AppState>, workflow: Workflow) -> AppResult<Workflow> {
+    crate::backups::snapshot(&state)?;
     workflows::save(&state.db, &workflow)
 }
 #[tauri::command]
 pub fn delete_workflow(state: State<'_, AppState>, id: String) -> AppResult<()> {
+    crate::backups::snapshot(&state)?;
     workflows::delete(&state.db, &id)
 }
 #[tauri::command]

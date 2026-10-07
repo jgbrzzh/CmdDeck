@@ -68,6 +68,7 @@ pub fn save_preset(
     state: State<'_, AppState>,
     preset: Preset,
 ) -> AppResult<Preset> {
+    crate::backups::snapshot(&state)?;
     // 判断是新增还是更新（前端新建时 id 为空串）
     let is_new = preset.id.trim().is_empty() || !presets::exists(&state.db, &preset.id)?;
 
@@ -84,6 +85,7 @@ pub fn save_preset(
 /// 删除一条预设
 #[tauri::command]
 pub fn delete_preset(app: AppHandle, state: State<'_, AppState>, id: String) -> AppResult<()> {
+    crate::backups::snapshot(&state)?;
     presets::delete(&state.db, &id)?;
     state.emit(&app, EV_PRESET_CHANGED, json!({ "reason": "deleted" }));
     Ok(())
@@ -96,6 +98,7 @@ pub fn delete_presets(
     state: State<'_, AppState>,
     ids: Vec<String>,
 ) -> AppResult<()> {
+    crate::backups::snapshot(&state)?;
     let n = presets::delete_many(&state.db, &ids)?;
     state.emit(
         &app,
@@ -112,6 +115,7 @@ pub fn duplicate_preset(
     state: State<'_, AppState>,
     id: String,
 ) -> AppResult<Preset> {
+    crate::backups::snapshot(&state)?;
     let copy = presets::duplicate(&state.db, &id)?;
     state.emit(&app, EV_PRESET_CHANGED, json!({ "reason": "duplicated" }));
     Ok(copy)
@@ -124,6 +128,7 @@ pub fn duplicate_preset(
 /// 拖拽排序：按给定顺序重写 `sort_order`
 #[tauri::command]
 pub fn reorder_presets(state: State<'_, AppState>, ids: Vec<String>) -> AppResult<()> {
+    crate::backups::snapshot(&state)?;
     presets::reorder(&state.db, &ids)
 }
 
@@ -148,6 +153,7 @@ pub fn move_preset(
     group_id: String,
     sort_order: i32,
 ) -> AppResult<()> {
+    crate::backups::snapshot(&state)?;
     presets::move_to_group(&state.db, &id, &group_id, sort_order)
 }
 

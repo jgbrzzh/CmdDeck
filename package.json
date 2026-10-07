@@ -1,7 +1,7 @@
 {
   "name": "cmddeck",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "CmdDeck - Windows 控制台集中管理中心（预设指令 + 内嵌终端 + 快速启动）",
   "type": "module",
   "scripts": {

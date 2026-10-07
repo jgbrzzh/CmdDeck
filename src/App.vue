@@ -29,6 +29,11 @@ import { useUiStore } from "@/stores/ui";
 import { useTheme } from "@/composables/useTheme";
 import TerminalWorkspace from "@/components/terminal/TerminalWorkspace.vue";
 import EnvironmentManager from "@/components/EnvironmentManager.vue";
+import ProductivityPanel from "@/components/ProductivityPanel.vue";
+import { useProductivityStore } from "@/stores/productivity";
+import { productivityApi } from "@/api/productivity";
+import type { Preflight } from "@/types/productivity";
+import { listen } from "@tauri-apps/api/event";
 import { environmentApi } from "@/api/environments";
 import type {
   AuditLog,
@@ -46,6 +51,29 @@ const ps = reactive(usePresetStore()),
   ss = reactive(useSettingsStore()),
   ui = reactive(useUiStore());
 useTheme();
+const productivity = reactive(useProductivityStore());
+const preflight = ref<Preflight | null>(null),
+  checking = ref(false);
+let previewSequence = 0;
+async function selectWorkspace(event: Event) {
+  const old = productivity.config.activeWorkspace;
+  productivity.config.activeWorkspace = (
+    event.target as HTMLSelectElement
+  ).value;
+  await attempt(async () => {
+    try {
+      await productivity.save();
+      ts.fitAll();
+    } catch (e) {
+      productivity.config.activeWorkspace = old;
+      throw e;
+    }
+  });
+}
+function runById(id: string) {
+  const p = ps.byId(id);
+  if (p) void requestRun(p);
+}
 const editor = ref<Preset | null>(null),
   argsText = ref(""),
   envText = ref(""),
@@ -76,11 +104,16 @@ const logs = ref<AuditLog[]>([]),
   history = ref<TerminalHistory[]>([]),
   blacklistText = ref("");
 const pages = [
+  { id: "projects", label: "项目工作区", icon: "▣" },
   { id: "presets", label: "预设指令", icon: "⌘" },
+  { id: "tasks", label: "任务与端口", icon: "◉" },
+  { id: "logs", label: "日志中心", icon: "≡" },
   { id: "environments", label: "运行环境", icon: "◇" },
   { id: "workflows", label: "工作流", icon: "⛓" },
   { id: "schedules", label: "定时任务", icon: "◷" },
   { id: "audit", label: "运行记录", icon: "≡" },
+  { id: "backups", label: "备份与分享", icon: "▤" },
+  { id: "updates", label: "更新与通知", icon: "↻" },
   { id: "settings", label: "设置", icon: "⚙" },
 ] as const;
 const environmentReport = ref<EnvironmentReport | null>(null),
@@ -248,16 +281,32 @@ async function requestRun(p: Preset) {
 }
 async function updatePreview() {
   if (!runPreset.value) return;
+  const sequence = ++previewSequence;
+  checking.value = true;
+  preflight.value = null;
   await attempt(async () => {
-    preview.value = await presetApi.preview(runPreset.value!, values);
-    const v = await securityApi.check(runPreset.value!, values);
-    verdictText.value = v.reasons.join("；");
+    const result = await productivityApi.preflight(
+      runPreset.value!,
+      { ...values },
+      productivity.config.activeWorkspace,
+    );
+    if (sequence !== previewSequence) return;
+    preflight.value = result;
+    preview.value = result.command;
+    verdictText.value = result.checks
+      .filter((c) => c.level === "error" || c.level === "warning")
+      .map((c) => c.message)
+      .join("；");
   });
+  if (sequence === previewSequence) checking.value = false;
 }
 async function execute() {
   if (!runPreset.value || busy.value) return;
   busy.value = true;
   await attempt(async () => {
+    await updatePreview();
+    if (!preflight.value?.canRun)
+      throw new Error("执行前检查未通过，请修正上方问题");
     const p = runPreset.value!,
       v = await securityApi.check(p, values);
     if (v.level === "blocked") throw new Error(v.reasons.join("；"));
@@ -541,6 +590,7 @@ watch(
 onMounted(async () => {
   try {
     await ss.load();
+    await productivity.load();
     blacklistText.value = ss.settings.blacklist.join("\n");
     await ps.load();
     ps.activeGroupId = ALL_KEY;
@@ -548,12 +598,50 @@ onMounted(async () => {
     cleanups.push(await onQuickLaunch(() => (quick.value = true)));
     cleanups.push(await onPresetChanged(() => void ps.load()));
     cleanups.push(
+      await listen<{ sessionId: string }>(
+        "cmddeck://notification-click",
+        async (e) => {
+          ui.setView("terminals");
+          if (e.payload.sessionId) {
+            const info = (await terminalApi.list()).find(
+              (t) => t.sessionId === e.payload.sessionId,
+            );
+            if (info) {
+              const workspaceId = info.workspaceId || "";
+              productivity.config.activeWorkspace =
+                productivity.config.workspaces.some(
+                  (w) => w.id === workspaceId,
+                )
+                  ? workspaceId
+                  : "";
+              await ts.attach(info, await terminalApi.snapshot(info.sessionId));
+            }
+            ts.setActive(e.payload.sessionId);
+          }
+        },
+      ),
+    );
+    cleanups.push(
+      await listen(
+        "cmddeck://productivity-changed",
+        () => void productivity.load(),
+      ),
+    );
+    cleanups.push(
       await onWorkflowUpdate((r) => {
         runs.value = [r, ...runs.value.filter((v) => v.id !== r.id)];
       }),
     );
     for (const info of await terminalApi.list())
       await ts.attach(info, await terminalApi.snapshot(info.sessionId));
+    const layout =
+      productivity.config.layouts[productivity.config.activeWorkspace];
+    if (layout && productivity.config.restoreLayout && !ts.tabs.length) {
+      ts.restoreTabs(layout.tabs, productivity.config.activeWorkspace);
+      ts.setActive(ts.tabs[layout.active]?.sessionId || "");
+      productivity.secondaryId = ts.tabs[layout.secondary]?.sessionId || "";
+      productivity.layoutMode = layout.mode;
+    }
     welcome.value = !ss.settings.firstRunDone;
     ready.value = true;
   } catch (e) {
@@ -582,6 +670,21 @@ onBeforeUnmount(() => {
           height="30"
         />CmdDeck <small>控制台中心</small>
       </div>
+      <select
+        aria-label="当前项目"
+        class="workspace-select"
+        :value="productivity.config.activeWorkspace"
+        @change="selectWorkspace"
+      >
+        <option value="">全局工作区</option>
+        <option
+          v-for="w in productivity.config.workspaces"
+          :key="w.id"
+          :value="w.id"
+        >
+          {{ w.name }}
+        </option>
+      </select>
       <input
         v-model="ps.keyword"
         aria-label="搜索预设"
@@ -762,6 +865,15 @@ onBeforeUnmount(() => {
         </section>
       </template>
       <section v-else class="page">
+        <ProductivityPanel
+          v-if="
+            ['projects', 'tasks', 'logs', 'backups', 'updates'].includes(
+              ui.view,
+            )
+          "
+          :page="ui.view"
+          @run="runById"
+        />
         <EnvironmentManager
           v-if="ui.view === 'environments'"
           :default-project="ss.settings.defaultWorkingDir"
@@ -1167,13 +1279,26 @@ onBeforeUnmount(() => {
         /></label>
         <p>将执行：</p>
         <pre class="preview">{{ preview }}</pre>
+        <p v-if="checking">正在检查目录、环境和端口…</p>
+        <template v-if="preflight"
+          ><p>运行目录：{{ preflight.directory || "未确定" }}</p>
+          <ul class="preflight-checks">
+            <li v-for="(c, i) in preflight.checks" :key="i" :class="c.level">
+              {{ c.level === "ok" ? "✓" : c.level === "error" ? "✕" : "!" }}
+              {{ c.message }}
+            </li>
+          </ul></template
+        >
         <p v-if="verdictText" class="warning">{{ verdictText }}</p>
         <p v-if="runPreset.elevated" class="warning">
           需要以管理员身份启动 CmdDeck
         </p>
         <div class="actions">
           <button type="button" @click="runPreset = null">取消</button
-          ><button class="primary" :disabled="busy">
+          ><button
+            class="primary"
+            :disabled="busy || checking || !preflight?.canRun"
+          >
             {{ busy ? "启动中…" : "运行" }}
           </button>
         </div>

@@ -6,6 +6,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { useProductivityStore } from "@/stores/productivity";
 
 import type {
   AppInfo,
@@ -111,14 +112,25 @@ export const terminalApi = {
   spawn: (options: SpawnOptions) =>
     call<TerminalInfo>("spawn_terminal", { options }),
   /** 打开一个指定类型的交互式 Shell */
-  openShell: (kind: string) => call<TerminalInfo>("open_shell", { kind }),
+  openShell: (kind: string) =>
+    call<TerminalInfo>("open_shell", {
+      kind,
+      workspaceId: useProductivityStore().config.value.activeWorkspace,
+    }),
   /** 运行一条预设（内部会做安全检查 + 写审计日志） */
   runPreset: (
     presetId: string,
     args: Record<string, string>,
     source = "manual",
     confirmed = false,
-  ) => call<TerminalInfo>("run_preset", { presetId, args, source, confirmed }),
+  ) =>
+    call<TerminalInfo>("run_preset", {
+      presetId,
+      args,
+      source,
+      confirmed,
+      workspaceId: useProductivityStore().config.value.activeWorkspace,
+    }),
   write: (sessionId: string, data: string) =>
     call<void>("write_terminal", { sessionId, data }),
   resize: (sessionId: string, cols: number, rows: number) =>

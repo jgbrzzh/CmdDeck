@@ -100,6 +100,16 @@ pub fn run_internal(
     source: &str,
     confirmed: bool,
 ) -> AppResult<TerminalInfo> {
+    run_in_workspace(app, id, args, source, confirmed, None)
+}
+fn run_in_workspace(
+    app: &AppHandle,
+    id: &str,
+    args: &HashMap<String, String>,
+    source: &str,
+    confirmed: bool,
+    workspace_id: Option<&str>,
+) -> AppResult<TerminalInfo> {
     let st = app.state::<AppState>();
     let p = db::presets::get(&st.db, id)?;
     if p.confirm && !confirmed {
@@ -115,8 +125,9 @@ pub fn run_internal(
         opt.interactive = true;
         opt.use_shell = false;
     }
+    crate::productivity::prepare(&st, &mut opt, workspace_id)?;
     validate_spawn(&st, &opt, confirmed)?;
-    let info = st.pty.spawn(opt)?;
+    let info = st.pty.spawn_in_workspace(opt, workspace_id.unwrap_or(""))?;
     db::presets::record_run(&st.db, id)?;
     Ok(info)
 }
@@ -127,13 +138,15 @@ pub fn run_preset(
     args: HashMap<String, String>,
     source: Option<String>,
     confirmed: Option<bool>,
+    workspace_id: Option<String>,
 ) -> AppResult<TerminalInfo> {
-    run_internal(
+    run_in_workspace(
         &app,
         &preset_id,
         &args,
         source.as_deref().unwrap_or("manual"),
         confirmed.unwrap_or(false),
+        workspace_id.as_deref(),
     )
 }
 #[tauri::command]
@@ -146,7 +159,11 @@ pub fn spawn_terminal(
     state.pty.spawn(options)
 }
 #[tauri::command]
-pub fn open_shell(state: State<'_, AppState>, kind: String) -> AppResult<TerminalInfo> {
+pub fn open_shell(
+    state: State<'_, AppState>,
+    kind: String,
+    workspace_id: Option<String>,
+) -> AppResult<TerminalInfo> {
     let mut p = Preset::default();
     p.id.clear();
     p.name = kind.clone();
@@ -157,7 +174,11 @@ pub fn open_shell(state: State<'_, AppState>, kind: String) -> AppResult<Termina
     if !state.settings().shell_path.is_empty() {
         opt.program = state.settings().shell_path;
     }
-    state.pty.spawn(opt)
+    crate::productivity::prepare(&state, &mut opt, workspace_id.as_deref())?;
+    validate_spawn(&state, &opt, false)?;
+    state
+        .pty
+        .spawn_in_workspace(opt, workspace_id.as_deref().unwrap_or(""))
 }
 #[tauri::command]
 pub fn write_terminal(

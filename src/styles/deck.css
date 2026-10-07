@@ -133,7 +133,25 @@ body {
   flex: 1;
   min-height: 0;
 }
+.workspace-select {
+  max-width: 160px;
+  min-width: 100px;
+}
+.preflight-checks {
+  padding-left: 20px;
+  line-height: 1.7;
+}
+.preflight-checks .error {
+  color: var(--danger, #f87171);
+}
+.preflight-checks .warning {
+  color: var(--warning, #fbbf24);
+}
+.preflight-checks .ok {
+  color: var(--accent, #2dd4bf);
+}
 .rail {
+  overflow-y: auto;
   width: 98px;
   flex: none;
   border-right: 1px solid var(--deck-border);
@@ -141,19 +159,20 @@ body {
   background: var(--deck-panel);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 4px;
 }
 .rail button {
+  flex-shrink: 0;
   border: 0;
   background: transparent;
-  padding: 13px 0;
+  padding: 7px 0;
   color: var(--deck-muted);
   font-size: 11px;
 }
 .rail button span {
   display: block;
-  font-size: 24px;
-  margin-bottom: 6px;
+  font-size: 20px;
+  margin-bottom: 3px;
 }
 .rail button.active {
   background: #4edca711;

@@ -140,6 +140,46 @@ impl PtyManager {
     pub fn snapshot(&self, id: &str) -> AppResult<String> {
         Ok(self.get(id)?.output.lock().clone())
     }
+    pub fn process_ids(&self, id: &str) -> AppResult<Vec<u32>> {
+        let s = self.get(id)?;
+        if s.info.lock().status != "running" {
+            return Ok(vec![]);
+        }
+        #[cfg(windows)]
+        {
+            use windows_sys::Win32::System::{JobObjects::*, Threading::GetProcessId};
+            if let Some(job) = &s.job {
+                let mut count = 64usize;
+                for _ in 0..4 {
+                    let mut data = vec![0usize; count + 2];
+                    let bytes = (data.len() * std::mem::size_of::<usize>()) as u32;
+                    let ok = unsafe {
+                        QueryInformationJobObject(
+                            job.as_raw_handle(),
+                            JobObjectBasicProcessIdList,
+                            data.as_mut_ptr() as _,
+                            bytes,
+                            std::ptr::null_mut(),
+                        )
+                    };
+                    if ok != 0 {
+                        let size = unsafe { *((data.as_ptr() as *const u32).add(1)) } as usize;
+                        return Ok(data[1..1 + size.min(count)]
+                            .iter()
+                            .map(|p| *p as u32)
+                            .collect());
+                    }
+                    count *= 4;
+                }
+                return Err(AppError::io("无法读取任务进程树"));
+            }
+            Ok(vec![unsafe { GetProcessId(s.process.as_raw_handle()) }])
+        }
+        #[cfg(not(windows))]
+        {
+            Ok(vec![])
+        }
+    }
     pub fn write(&self, id: &str, data: &str) -> AppResult<()> {
         let s = self.get(id)?;
         let mut w = s.writer.lock();
@@ -208,9 +248,19 @@ impl PtyManager {
         }
     }
     pub fn spawn(&self, opt: SpawnOptions) -> AppResult<TerminalInfo> {
+        self.spawn_in_workspace(opt, "")
+    }
+    pub fn spawn_in_workspace(
+        &self,
+        opt: SpawnOptions,
+        workspace_id: &str,
+    ) -> AppResult<TerminalInfo> {
         // 插入会话之前持锁检查数量，避免并发启动绕过上限。
         let mut sessions = self.sessions.lock();
         let state = self.app.state::<AppState>();
+        if state.restoring.load(std::sync::atomic::Ordering::SeqCst) {
+            return Err(AppError::validation("正在恢复配置，请稍后启动任务"));
+        }
         let settings = state.settings();
         if sessions
             .values()
@@ -226,7 +276,16 @@ impl PtyManager {
         if sessions.len() > 128 {
             sessions.retain(|_, s| s.info.lock().exit_code.is_none());
         }
-        let (program, args) = opt.resolve();
+        let (mut program, args) = opt.resolve();
+        let cwd = resolve_working_directory(&opt.working_dir, &settings.default_working_dir)?;
+        if !std::path::Path::new(&program).is_absolute()
+            && std::path::Path::new(&cwd).join(&program).is_file()
+        {
+            program = std::path::Path::new(&cwd)
+                .join(&program)
+                .to_string_lossy()
+                .into_owned();
+        }
         if program.is_empty() {
             return Err(AppError::validation("请填写可执行程序路径"));
         }
@@ -240,7 +299,6 @@ impl PtyManager {
             .map_err(exec_error)?;
         let mut cmd = CommandBuilder::new(&program);
         cmd.args(&args);
-        let cwd = resolve_working_directory(&opt.working_dir, &settings.default_working_dir)?;
         cmd.cwd(&cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("PYTHONIOENCODING", "utf-8");
@@ -269,6 +327,7 @@ impl PtyManager {
                 .unwrap_or_default()
         };
         let info = TerminalInfo {
+            workspace_id: workspace_id.into(),
             session_id: new_id(),
             title: if opt.title.is_empty() {
                 program.clone()
@@ -281,6 +340,7 @@ impl PtyManager {
             command: join_command_line(&program, &args),
             cwd,
             started_at: now_ms(),
+            ended_at: 0,
             status: "running".into(),
             exit_code: None,
             cols: opt.cols,
@@ -372,6 +432,7 @@ impl PtyManager {
             let i = {
                 let mut i = session.info.lock();
                 i.exit_code = Some(code);
+                i.ended_at = now_ms();
                 if i.status != "killed" {
                     i.status = "exited".into();
                 }
@@ -379,6 +440,7 @@ impl PtyManager {
             };
             let st = app.state::<AppState>();
             let settings = st.settings();
+            crate::notifications::completed(&app, &i);
             if settings.audit_enabled {
                 let _ = audit::insert(
                     &st.db,
@@ -424,11 +486,17 @@ impl PtyManager {
                     },
                 );
                 let _ = audit::history_prune(&st.db, settings.history_limit as i64);
+                if let Ok(config) = crate::productivity::load(&st.db) {
+                    let _ = audit::history_prune_bytes(
+                        &st.db,
+                        (config.log_max_megabytes as u64) * 1024 * 1024,
+                    );
+                }
             }
             st.emit(
                 &app,
                 EV_PTY_EXIT,
-                json!({"sessionId":i.session_id,"exitCode":code,"status":i.status}),
+                json!({"sessionId":i.session_id,"exitCode":code,"status":i.status,"endedAt":i.ended_at}),
             );
         });
         Ok(info)

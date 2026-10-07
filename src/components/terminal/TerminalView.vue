@@ -157,6 +157,7 @@ const finished = computed<boolean>(() => props.tab.status !== "running");
 /** 状态条文案 */
 const exitText = computed<string>(() => {
   const t = props.tab;
+  if (t.sessionId.startsWith("restored-")) return "已恢复 · 命令尚未执行";
   if (t.status === "killed" || t.stoppedByUser) return "已被终止";
   if (t.status === "exited") {
     if (t.exitCode === null) return "已退出（退出码未知）";
@@ -264,7 +265,7 @@ function writeWelcomeBanner(): void {
   bannerWritten.value = true;
   const s = settingsStore.settings.value;
   term.write(
-    `${C_BOLD_CYAN}${ASCII_BANNER}${C_RESET}\r\n` +
+    `${C_BOLD_CYAN}${term.cols < 75 ? "CmdDeck ›_" : ASCII_BANNER}${C_RESET}\r\n` +
       `${C_DIM}  Windows 控制台集中管理中心 · 终端会话已就绪${C_RESET}\r\n` +
       `${C_DIM}  工作目录：${props.tab.cwd || "用户主目录"}　|　快捷键：Ctrl+Shift+F 搜索，Shift+PageUp/PageDown 翻页${C_RESET}\r\n` +
       `${C_DIM}  字号 ${s.fontSize}px · 配色 ${s.colorScheme}${C_RESET}\r\n\r\n`,
@@ -706,7 +707,10 @@ function clearScreen(): void {
 
 /** 给外部（标签条右键菜单）用的运行时长文案 */
 function elapsed(): string {
-  return formatClock(Math.max(0, Date.now() - props.tab.startedAt));
+  if (props.tab.startedAt <= 0) return "待运行";
+  return formatClock(
+    Math.max(0, (props.tab.endedAt || Date.now()) - props.tab.startedAt),
+  );
 }
 
 // 暴露给父组件的少量能力（父组件用 ref 调用）

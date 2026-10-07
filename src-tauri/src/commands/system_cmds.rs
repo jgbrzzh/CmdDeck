@@ -60,7 +60,7 @@ pub fn get_settings(state: State<'_, AppState>) -> AppResult<AppSettings> {
 }
 
 /// 校验设置，返回中文错误（`Ok(())` 表示通过）
-fn validate_settings(s: &AppSettings) -> AppResult<()> {
+pub(crate) fn validate_settings(s: &AppSettings) -> AppResult<()> {
     if !(8..=48).contains(&s.font_size) {
         return Err(AppError::validation(format!(
             "终端字号必须在 8 到 48 之间，当前是 {}",
@@ -110,6 +110,7 @@ pub fn save_settings(
     state: State<'_, AppState>,
     settings: AppSettings,
 ) -> AppResult<AppSettings> {
+    crate::backups::snapshot(&state)?;
     let mut s = settings;
     validate_settings(&s)?;
 
@@ -156,6 +157,7 @@ pub fn save_settings(
 /// 恢复默认设置
 #[tauri::command]
 pub fn reset_settings(app: AppHandle, state: State<'_, AppState>) -> AppResult<AppSettings> {
+    crate::backups::snapshot(&state)?;
     let mut s = AppSettings::default();
     s.data_dir = state.data_dir.to_string_lossy().to_string();
 
@@ -266,6 +268,7 @@ pub fn export_data(state: State<'_, AppState>, path: String) -> AppResult<i32> {
     )?;
 
     let bundle = ExportBundle {
+        productivity: crate::productivity::load(&state.db)?,
         version: "1".to_string(),
         exported_at: now_ms(),
         app_version: app_version(),
@@ -317,6 +320,7 @@ pub fn import_data(
         Ok(b) => b,
         Err(first) => match serde_json::from_str::<Vec<crate::db::models::Preset>>(&text) {
             Ok(list) => ExportBundle {
+                productivity: crate::productivity::Productivity::default(),
                 version: "1".to_string(),
                 exported_at: now_ms(),
                 app_version: app_version(),
@@ -334,6 +338,9 @@ pub fn import_data(
         },
     };
 
+    crate::productivity::validate(&bundle.productivity)?;
+    validate_settings(&bundle.settings)?;
+    crate::backups::snapshot(&state)?;
     let mut report = ImportReport {
         groups_added: 0,
         groups_updated: 0,
@@ -464,6 +471,7 @@ pub fn import_data(
 
     // ---- 设置：只有"覆盖"模式才动，免得合并几���预设把用户的外观设置也覆盖掉 ----
     if mode == ImportMode::Replace {
+        crate::productivity::save(&state.db, &bundle.productivity)?;
         let mut incoming = bundle.settings;
         validate_settings(&incoming)?;
         incoming.data_dir = state.data_dir.to_string_lossy().to_string();

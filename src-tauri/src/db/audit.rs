@@ -173,6 +173,13 @@ pub fn audit_prune(db: &Db, keep: i64) -> AppResult<i64> {
 /// 终端历史列清单
 const HIST_COLUMNS: &str = "id, session_id, preset_id, preset_name, title, command, cwd, kind, \
                              started_at, ended_at, exit_code, output_tail";
+/// 日志目录只传元数据，选中时再取输出，避免一次传输数百 MB。
+pub fn history_metadata(db: &Db) -> AppResult<Vec<TerminalHistory>> {
+    let conn = db.conn();
+    let mut stmt=conn.prepare("SELECT id, session_id, preset_id, preset_name, title, command, cwd, kind, started_at, ended_at, exit_code, '' FROM terminal_history ORDER BY id DESC LIMIT 100")?;
+    let rows = stmt.query_map([], row_to_history)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
 
 /// 把一行记录读成 [`TerminalHistory`]
 fn row_to_history(row: &Row<'_>) -> rusqlite::Result<TerminalHistory> {
@@ -246,6 +253,10 @@ pub fn history_clear(db: &Db) -> AppResult<()> {
     let conn = db.conn();
     conn.execute("DELETE FROM terminal_history", [])?;
     Ok(())
+}
+/// 以输出字节总量限制历史数据，避免长时间运行占满磁盘。
+pub fn history_prune_bytes(db: &Db, max_bytes: u64) -> AppResult<i64> {
+    Ok(db.conn().execute("DELETE FROM terminal_history WHERE id IN (SELECT id FROM (SELECT id, SUM(length(CAST(output_tail AS BLOB))) OVER (ORDER BY id DESC) AS total FROM terminal_history) WHERE total>?1)",params![max_bytes.min(i64::MAX as u64) as i64])? as i64)
 }
 
 /// 只保留最近 `keep` 条终端历史，返回删除条数
@@ -472,5 +483,17 @@ mod tests {
         assert_eq!(history_list(&db, "", 0).unwrap().len(), 2);
         history_clear(&db).unwrap();
         assert!(history_list(&db, "", 0).unwrap().is_empty());
+    }
+    #[test]
+    fn history_capacity_counts_utf8_bytes_and_keeps_newest() {
+        let db = Db::open_in_memory().unwrap();
+        let mut a = hist("old", 1000);
+        a.output_tail = "中文".repeat(10);
+        history_insert(&db, &a).unwrap();
+        let mut b = hist("new", 2000);
+        b.output_tail = "ok".repeat(10);
+        history_insert(&db, &b).unwrap();
+        assert_eq!(history_prune_bytes(&db, 40).unwrap(), 1);
+        assert_eq!(history_list(&db, "", 10).unwrap()[0].preset_id, "new");
     }
 }
