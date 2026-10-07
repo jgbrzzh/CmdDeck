@@ -17,6 +17,7 @@
 
 pub mod audit_cmds;
 pub mod batch_cmds;
+pub mod environment_cmds;
 pub mod group_cmds;
 pub mod preset_cmds;
 pub mod schedule_cmds;

@@ -21,6 +21,8 @@ cargo test --locked --manifest-path src-tauri/Cargo.toml -j 2
 
 修改终端、快捷键、托盘、开机启动或调度时，还需要真实桌面验收。编译通过不能代替交互验收。请在 PR 中写明测试环境、操作和结果，勿提交数据库、环境变量、令牌、运行日志、安装缓存或生成目录。
 
+`AGENTS.md` 是本地私人指令，不进入公开仓库。个人预设、配置导出 JSON、环境路径清单和验收数据库都留在本地；公开示例仅来自 `src-tauri/src/seed.rs`，请逐项核对暂存文件，勿直接全目录暂存。
+
 ## 代码和提交约定
 
 - 前端 Vue 3 + TypeScript；后端 Rust。SQL 放在 `src-tauri/src/db`，IPC 放在 `commands`。

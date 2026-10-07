@@ -98,10 +98,24 @@ fn default_input_type() -> String {
 // 预设指令
 // ============================================================
 
+/// 运行环境只改变当前子进程，不切换系统全局 Python / Node。
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeBinding {
+    #[serde(default)]
+    pub kind: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub manager_path: String,
+}
+
 /// 一条预设指令（CmdDeck 的核心数据）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Preset {
+    #[serde(default)]
+    pub runtime: RuntimeBinding,
     /// 唯一 ID（uuid v4）
     pub id: String,
     /// 显示名称
@@ -181,6 +195,7 @@ impl Default for Preset {
     fn default() -> Self {
         let now = now_ms();
         Self {
+            runtime: RuntimeBinding::default(),
             id: new_id(),
             name: "新预设".to_string(),
             kind: preset_kind::POWERSHELL.to_string(),
@@ -286,6 +301,8 @@ impl Default for Group {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpawnOptions {
+    #[serde(default)]
+    pub runtime: RuntimeBinding,
     /// 关联的预设 ID（可空，例如手动开的空白终端）
     #[serde(default)]
     pub preset_id: String,
@@ -345,6 +362,40 @@ impl SpawnOptions {
     ///
     /// 返回 `(program, args)`，交给 `CommandBuilder` 使用。
     pub fn resolve(&self) -> (String, Vec<String>) {
+        let (mut program, args) = self.resolve_base();
+        if self.runtime.kind == "conda" {
+            let mut wrapped = vec![
+                "run".into(),
+                "--no-capture-output".into(),
+                "-p".into(),
+                self.runtime.path.clone(),
+                program,
+            ];
+            wrapped.extend(args);
+            return (self.runtime.manager_path.clone(), wrapped);
+        }
+        if self.kind == "python"
+            && ["venv", "python"].contains(&self.runtime.kind.as_str())
+            && (self.program.is_empty()
+                || ["python", "python.exe"].contains(&self.program.as_str()))
+        {
+            program = if self.runtime.kind == "python" {
+                self.runtime.path.clone()
+            } else {
+                std::path::Path::new(&self.runtime.path)
+                    .join("Scripts/python.exe")
+                    .to_string_lossy()
+                    .into_owned()
+            };
+        } else if self.kind == "node"
+            && self.runtime.kind == "node"
+            && (self.program.is_empty() || ["node", "node.exe"].contains(&self.program.as_str()))
+        {
+            program = self.runtime.path.clone();
+        }
+        (program, args)
+    }
+    fn resolve_base(&self) -> (String, Vec<String>) {
         let kind = self.kind.as_str();
         if self.interactive {
             return (
@@ -385,6 +436,31 @@ impl SpawnOptions {
             },
             self.args.clone(),
         )
+    }
+}
+
+#[cfg(test)]
+mod runtime_tests {
+    use super::*;
+    #[test]
+    fn legacy_import_defaults_to_system_runtime() {
+        let p: Preset =
+            serde_json::from_str(r#"{"id":"old","name":"旧配置","kind":"python"}"#).unwrap();
+        assert!(p.runtime.kind.is_empty());
+    }
+    #[test]
+    fn selected_environment_survives_database_roundtrip() {
+        let db = crate::db::Db::open_in_memory().unwrap();
+        let mut p = Preset::default();
+        p.runtime = RuntimeBinding {
+            kind: "venv".into(),
+            path: r"C:\project with spaces\.venv".into(),
+            manager_path: String::new(),
+        };
+        let saved = crate::db::presets::save(&db, &p).unwrap();
+        let read = crate::db::presets::get(&db, &saved.id).unwrap();
+        assert_eq!(read.runtime.path, p.runtime.path);
+        assert_eq!(read.runtime.kind, "venv");
     }
 }
 
@@ -1041,6 +1117,7 @@ mod tests {
     #[test]
     fn resolve_cmd_uses_comspec() {
         let opt = SpawnOptions {
+            runtime: RuntimeBinding::default(),
             preset_id: String::new(),
             title: String::new(),
             kind: preset_kind::CMD.into(),
@@ -1065,6 +1142,7 @@ mod tests {
     #[test]
     fn resolve_exe_direct() {
         let opt = SpawnOptions {
+            runtime: RuntimeBinding::default(),
             preset_id: String::new(),
             title: String::new(),
             kind: preset_kind::EXE.into(),

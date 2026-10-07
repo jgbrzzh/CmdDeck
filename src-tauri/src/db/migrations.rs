@@ -4,7 +4,7 @@
 //! 这样用户升级新版本时会自动补齐新表 / 新字段，不需要重新配置。
 
 /// 当前 schema 版本号。新增迁移时 +1。
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 /// 单条迁移：`version` 唯一，`sql` 可包含多条语句。
 pub struct Migration {
@@ -169,6 +169,11 @@ pub fn all_migrations() -> &'static [Migration] {
 
             CREATE INDEX IF NOT EXISTS idx_wfrun_wf ON workflow_runs(workflow_id, started_at DESC);
             "#,
+        },
+        Migration {
+            version: 5,
+            name: "预设运行环境",
+            sql: "ALTER TABLE presets ADD COLUMN runtime TEXT NOT NULL DEFAULT '{}';",
         },
     ]
 }

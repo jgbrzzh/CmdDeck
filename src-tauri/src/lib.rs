@@ -2,6 +2,7 @@
 
 pub mod commands;
 pub mod db;
+pub mod environments;
 pub mod error;
 pub mod pty;
 pub mod security;
@@ -115,6 +116,9 @@ pub fn run() {
         })
         // ---- 注册全部前端命令 ----
         .invoke_handler(tauri::generate_handler![
+            commands::environment_cmds::discover_environments,
+            commands::environment_cmds::open_environment_terminal,
+            commands::environment_cmds::run_environment_action,
             // 预设
             commands::preset_cmds::list_presets,
             commands::preset_cmds::get_preset,
@@ -172,6 +176,7 @@ pub fn run() {
             commands::system_cmds::import_data,
             commands::system_cmds::set_global_hotkey,
             commands::system_cmds::set_autostart,
+            commands::system_cmds::get_integration_status,
             commands::system_cmds::get_system_shells,
             commands::system_cmds::is_elevated,
             commands::seed_cmds::seed_default_data,

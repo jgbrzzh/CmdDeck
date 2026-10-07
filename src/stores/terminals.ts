@@ -13,7 +13,7 @@
  *    - 后端主动 spawn 的会话（定时任务 / 工作流 / 批量）：
  *      前端拿不到返回值，只能靠 `onPtyOpen` 事件补建。
  *
- * 3. **缓冲上限**：单个 tab 1MB，超出从中间截断（保留最新的内容），
+ * 3. **缓冲上限**：单个 tab 1MB，超出时淘汰旧输出，保留最新内容，
  *    防止跑几小时的高频输出把内存吃光。
  */
 
@@ -43,9 +43,6 @@ import { useUiStore } from "./ui";
 
 /** 单个标签页输出缓冲上限：1MB 字符 */
 const MAX_BUFFER = 1024 * 1024;
-
-/** 从缓冲中间截断时保留的头部比例（保留一点上下文，避免只剩光秃秃的尾巴） */
-const KEEP_HEAD_RATIO = 0.3;
 
 export interface TerminalStore {
   // ---- 状态 ----
@@ -146,6 +143,7 @@ function toTab(
     ...info,
     pendingSnapshot: snapshot,
     outputBuffer: "",
+    outputOffset: 0,
     stoppedByUser: false,
     background: false,
   };
@@ -154,8 +152,7 @@ function toTab(
 /**
  * 向输出缓冲追加数据，并限制总长度。
  *
- * 超出 1MB 时保留头部 30% + 最新 70%，中间用省略标记衔接，
- * 这样既能看到最初的命令行，也不会丢最新的输出。
+ * 超出 1MB 时淘汰半个缓冲；绝对偏移保证缓存截断后仍能追加最新输出。
  */
 function appendOutput(id: string, data: string): void {
   const tab = byId(id);
@@ -163,9 +160,12 @@ function appendOutput(id: string, data: string): void {
 
   let buf = tab.outputBuffer + data;
   if (buf.length > MAX_BUFFER) {
-    const keepHead = Math.floor(MAX_BUFFER * KEEP_HEAD_RATIO);
-    const keepTail = MAX_BUFFER - keepHead;
-    buf = `${buf.slice(0, keepHead)}\r\n……（输出过多，中间 ${buf.length - MAX_BUFFER} 个字符已省略）……\r\n${buf.slice(-keepTail)}`;
+    // 一次淘汰半个缓冲，避免达到上限后每一小块输出都复制 1MB。
+    let cut = buf.length - Math.floor(MAX_BUFFER / 2);
+    const c = buf.charCodeAt(cut);
+    if (c >= 0xdc00 && c <= 0xdfff) cut++;
+    tab.outputOffset += cut;
+    buf = buf.slice(cut);
   }
 
   tab.outputBuffer = buf;
@@ -459,7 +459,15 @@ function resize(id: string, cols: number, rows: number): void {
     rows <= 0
   )
     return;
-  terminalApi.resize(id, Math.floor(cols), Math.floor(rows)).catch((err) => {
+  const tab = byId(id)!;
+  cols = Math.floor(cols);
+  rows = Math.floor(rows);
+  if (tab.cols === cols && tab.rows === rows) return;
+  tab.cols = cols;
+  tab.rows = rows;
+  terminalApi.resize(id, cols, rows).catch((err) => {
+    tab.cols = 0;
+    tab.rows = 0;
     // resize 调用非常频繁，失败只记日志
     console.debug("[CmdDeck] resize 失败", toFriendlyError(err));
   });

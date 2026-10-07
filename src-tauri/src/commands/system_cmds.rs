@@ -131,10 +131,24 @@ pub fn save_settings(
         crate::apply_global_hotkey(&app, &state, &s.global_hotkey)?;
     }
     if s.autostart != old.autostart {
-        apply_autostart(&app, s.autostart)?;
+        if let Err(err) = apply_autostart(&app, s.autostart) {
+            let _ = apply_autostart(&app, old.autostart);
+            if s.global_hotkey.trim() != old.global_hotkey.trim() {
+                let _ = crate::apply_global_hotkey(&app, &state, &old.global_hotkey);
+            }
+            return Err(err);
+        }
     }
 
-    state.set_settings(&s)?;
+    if let Err(err) = state.set_settings(&s) {
+        if s.autostart != old.autostart {
+            let _ = apply_autostart(&app, old.autostart);
+        }
+        if s.global_hotkey.trim() != old.global_hotkey.trim() {
+            let _ = crate::apply_global_hotkey(&app, &state, &old.global_hotkey);
+        }
+        return Err(err);
+    }
     state.emit(&app, EV_SETTINGS_CHANGED, s.clone());
     Ok(s)
 }
@@ -520,6 +534,21 @@ fn upsert_schedule(conn: &rusqlite::Connection, s: &Schedule) -> AppResult<()> {
 // 系统集成
 // ============================================================
 
+/// 返回操作系统和运行时的真实状态，而不是仅显示保存的偏好。
+#[tauri::command]
+pub fn get_integration_status(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<serde_json::Value> {
+    let autostart = app
+        .autolaunch()
+        .is_enabled()
+        .map_err(|e| AppError::other(e.to_string()))?;
+    Ok(
+        json!({"autostart":autostart,"tray":app.tray_by_id("cmddeck-tray").is_some(),"scheduler":state.scheduler_running.load(std::sync::atomic::Ordering::SeqCst)}),
+    )
+}
+
 /// 设置全局快捷键（快速启动面板）。成功后才写进设置。
 #[tauri::command]
 pub fn set_global_hotkey(
@@ -542,12 +571,18 @@ pub fn set_global_hotkey(
 /// 否则用户在这里打开的自启动会在下次启动时被 `lib.rs` 里的对齐逻辑改回去。
 #[tauri::command]
 pub fn set_autostart(app: AppHandle, enabled: bool) -> AppResult<()> {
-    apply_autostart(&app, enabled)?;
-
     let state = app.state::<AppState>();
     let mut s = state.settings();
+    if let Err(err) = apply_autostart(&app, enabled) {
+        let _ = apply_autostart(&app, s.autostart);
+        return Err(err);
+    }
+    let old = s.autostart;
     s.autostart = enabled;
-    state.set_settings(&s)?;
+    if let Err(err) = state.set_settings(&s) {
+        let _ = apply_autostart(&app, old);
+        return Err(err);
+    }
     state.emit(&app, EV_SETTINGS_CHANGED, s);
     Ok(())
 }

@@ -14,6 +14,8 @@ async (page) => {
       report.checks.push({ name, ok, detail });
       if (!ok) throw new Error(name + ": " + detail);
     };
+    const appInfo = await invoke("get_app_info");
+    if (!/[\\/]test-results[\\/]/.test(appInfo.dataDir)) throw new Error("验收只允许连接 test-results 下的独立数据目录");
     const original = await invoke("get_settings");
     const settings = { ...original, allowUnknownExe: true };
     await invoke("save_settings", { settings });

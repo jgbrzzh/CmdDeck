@@ -13,6 +13,8 @@ Windows 控制台集中管理中心。把常用指令保存为预设，在一个
 
 - 预设新建、编辑、删除，工作目录、环境变量、参数、图标、分组、标签、备注和收藏。
 - PowerShell、CMD、Python、Node.js 和自定义 exe；运行前填写 `{{name}}` 等参数。
+- Python / Node 环境管理：检测 Conda、项目 `.venv` / `venv`、Python 启动器和 Node 安装；预设可以绑定环境，定时任务与工作流复用同一绑定。
+- 调用现有 Conda、Python venv、uv、npm / pnpm / yarn 与 fnm / nvm / Volta，查看包、创建环境、安装包或 Node 版本，操作输出进入内嵌终端。
 - ConPTY + xterm.js 内嵌终端，多标签并发、交互输入、实时输出、停止、清屏、搜索、复制和退出码。
 - 顶部搜索、收藏、最近使用、拖拽排序、`Ctrl+K` 快速启动。
 - 默认全局快捷键 `Ctrl+Shift+Space`，托盘、开机启动、暗色 / 亮色主题和多窗口。
@@ -29,7 +31,7 @@ Windows 控制台集中管理中心。把常用指令保存为预设，在一个
 安装包目前未代码签名。发布页附 `SHA256SUMS.txt`，可用以下命令检查文件哈希：
 
 ```powershell
-Get-FileHash .\CmdDeck_1.0.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\CmdDeck_1.1.0_x64-setup.exe -Algorithm SHA256
 ```
 
 ## 从源码一键安装、运行和打包
@@ -85,6 +87,29 @@ npm run tauri:build
 7. 全局快捷键从任意应用呼出主窗口；关闭主窗口默认隐藏到托盘。真正退出请右键托盘选择“退出并停止任务”。
 
 运行参数会进行原样文本替换；在 Shell 脚本中使用引号保护需要的值。只运行你信任的命令和配置。
+
+## 环境管理与默认目录
+
+在“运行环境”选择项目文件夹后点击“刷新环境”。检测现有 PATH 工具、Conda 环境、`py` 启动器、项目中的 `.venv` / `venv` / `env`，以及 `NVM_HOME`、`FNM_DIR`、Volta 的 Node 安装目录。工具缺失时先自行安装对应管理器，再重启 CmdDeck 刷新 PATH。
+
+在预设编辑窗口点击“检测运行环境”，选择环境并保存。此选择会写入本机 SQLite，运行预设、定时任务和工作流时使用同一环境；它不执行 `nvm use` 等全局切换。环境移动或配置导入到另一台电脑后，需要重新检测并选择。
+
+- Conda 通过 [`conda run --no-capture-output -p`](https://docs.conda.io/projects/conda/en/stable/commands/run.html) 执行，保留管理器的激活行为。
+- 项目虚拟环境设置当前进程的 `VIRTUAL_ENV` 和 PATH；Python 类型预设默认使用该环境的 `Scripts\python.exe`。
+- Node 环境使用选定的 `node.exe`，不改系统 PATH。版本目录由现有管理器维护；Volta 的 Windows 默认目录遵循[官方说明](https://docs.volta.sh/advanced/installers)。
+- 管理页面支持列出包、创建环境、安装包和安装 Node 版本。实际选项按检测到的管理器显示。安装会修改项目或管理器目录，执行前需要确认；Volta 安装可能更新其默认版本。没有删除环境或自动安装管理器的功能。
+
+终端工作目录按 **预设指定目录 → 设置中的默认工作目录 → 用户主目录** 选择。请用“选择文件夹”指定项目根目录，路径不存在时会给出中文错误。相对路径（例如 `.\.venv\Scripts\python.exe`）从这个目录解析。
+
+PowerShell 预设的“命令”可以直接输入多行，所有行在同一个进程运行，例如项目已有 `.venv` 时：
+
+```powershell
+$env:EXAMPLE_MODE = 'dev'
+$PY = '.\.venv\Scripts\python.exe'
+& $PY -c "import os; print(os.environ['EXAMPLE_MODE'])"
+```
+
+“设置”中的“开机启动”用于当前 Windows 登录后启动 CmdDeck，参数 `--minimized` 隐藏主窗口。可查看真实系统注册状态；失败时不会显示为已启用。托盘左键打开主窗口，右键提供打开、快速启动、隐藏和退出并停止任务。定时任务在应用运行时自动触发，关闭到托盘会继续运行；可以单独暂停调度，新任务暂停而已有任务继续执行。
 
 ## 数据、安全和行为边界
 

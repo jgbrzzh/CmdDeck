@@ -10,7 +10,7 @@ use portable_pty::ChildKiller;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
 use serde_json::json;
 #[cfg(windows)]
-use std::os::windows::io::{AsRawHandle, BorrowedHandle};
+use std::os::windows::io::{AsRawHandle, BorrowedHandle, FromRawHandle, OwnedHandle};
 use std::{
     collections::HashMap,
     io::{Read, Write},
@@ -27,6 +27,8 @@ pub struct Session {
     killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     #[cfg(windows)]
     process: std::os::windows::io::OwnedHandle,
+    #[cfg(windows)]
+    job: Option<OwnedHandle>,
 }
 pub struct PtyManager {
     app: AppHandle,
@@ -34,6 +36,85 @@ pub struct PtyManager {
 }
 fn exec_error(e: impl std::fmt::Display) -> AppError {
     AppError::exec(e.to_string())
+}
+#[cfg(windows)]
+fn process_job(process: &OwnedHandle) -> AppResult<Option<OwnedHandle>> {
+    use windows_sys::Win32::System::{JobObjects::*, Threading::*};
+    unsafe {
+        let raw = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+        if raw.is_null() {
+            return Err(exec_error(std::io::Error::last_os_error()));
+        }
+        let job = OwnedHandle::from_raw_handle(raw);
+        let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if SetInformationJobObject(
+            raw,
+            JobObjectExtendedLimitInformation,
+            &limits as *const _ as _,
+            std::mem::size_of_val(&limits) as u32,
+        ) == 0
+        {
+            let err = std::io::Error::last_os_error();
+            TerminateProcess(process.as_raw_handle(), 1);
+            return Err(exec_error(err));
+        }
+        if AssignProcessToJobObject(raw, process.as_raw_handle()) == 0 {
+            let err = std::io::Error::last_os_error();
+            let mut code = 0;
+            if GetExitCodeProcess(process.as_raw_handle(), &mut code) != 0 && code != 259 {
+                return Ok(None);
+            }
+            TerminateProcess(process.as_raw_handle(), 1);
+            return Err(exec_error(format!("无法集中管理子进程：{err}")));
+        }
+        Ok(Some(job))
+    }
+}
+/// 顺序：预设目录、全局默认目录、用户主目录。避免从安装目录运行相对路径。
+pub fn resolve_working_directory(preset: &str, default: &str) -> AppResult<String> {
+    let chosen = if !preset.trim().is_empty() {
+        preset.trim().to_owned()
+    } else if !default.trim().is_empty() {
+        default.trim().to_owned()
+    } else {
+        std::env::var("USERPROFILE")
+            .or_else(|_| std::env::var("HOME"))
+            .map_err(|_| AppError::validation("无法找到用户主目录，请在设置中指定默认工作目录"))?
+    };
+    let path = std::path::Path::new(&chosen);
+    if !path.is_absolute() {
+        return Err(AppError::validation(
+            "工作目录需要使用绝对路径，请通过选择文件夹按钮设置",
+        ));
+    }
+    if !path.is_dir() {
+        return Err(AppError::validation(format!(
+            "工作目录不存在或不是文件夹：{chosen}"
+        )));
+    }
+    Ok(chosen)
+}
+
+#[cfg(test)]
+mod directory_tests {
+    use super::*;
+    #[test]
+    fn directory_precedence_and_missing_path() {
+        let temp = std::env::temp_dir();
+        let text = temp.to_string_lossy();
+        assert_eq!(resolve_working_directory(&text, "invalid").unwrap(), text);
+        assert_eq!(resolve_working_directory("", &text).unwrap(), text);
+        assert!(resolve_working_directory("relative/path", "").is_err());
+        assert!(resolve_working_directory(
+            &temp
+                .join("cmddeck-nonexistent-directory-924981")
+                .to_string_lossy(),
+            ""
+        )
+        .is_err());
+        assert!(!resolve_working_directory("", "").unwrap().is_empty());
+    }
 }
 impl PtyManager {
     pub fn new(app: AppHandle) -> Self {
@@ -92,9 +173,15 @@ impl PtyManager {
             s.info.lock().status = "killed".into();
             #[cfg(windows)]
             {
+                use windows_sys::Win32::System::JobObjects::TerminateJobObject;
                 use windows_sys::Win32::System::Threading::{GetExitCodeProcess, TerminateProcess};
                 unsafe {
-                    if TerminateProcess(s.process.as_raw_handle(), 1) == 0 {
+                    let stopped = if let Some(job) = &s.job {
+                        TerminateJobObject(job.as_raw_handle(), 1)
+                    } else {
+                        TerminateProcess(s.process.as_raw_handle(), 1)
+                    };
+                    if stopped == 0 {
                         let mut code = 259;
                         if GetExitCodeProcess(s.process.as_raw_handle(), &mut code) == 0
                             || code == 259
@@ -153,19 +240,23 @@ impl PtyManager {
             .map_err(exec_error)?;
         let mut cmd = CommandBuilder::new(&program);
         cmd.args(&args);
-        let cwd = if opt.working_dir.is_empty() {
-            settings.default_working_dir.clone()
-        } else {
-            opt.working_dir.clone()
-        };
-        if !cwd.is_empty() {
-            cmd.cwd(&cwd);
-        }
+        let cwd = resolve_working_directory(&opt.working_dir, &settings.default_working_dir)?;
+        cmd.cwd(&cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("PYTHONIOENCODING", "utf-8");
+        if opt.runtime.kind == "conda" || opt.source == "environment" {
+            // Conda run 会写临时批处理；使用应用可写目录，避免受限 TEMP 导致启动失败。
+            let temp = state.sub_dir("tmp")?;
+            for key in ["TEMP", "TMP"] {
+                if !opt.env.iter().any(|e| e.name.eq_ignore_ascii_case(key)) {
+                    cmd.env(key, &temp);
+                }
+            }
+        }
         for env in &opt.env {
             cmd.env(&env.name, &env.value);
         }
+        crate::environments::apply_binding(&mut cmd, &opt.runtime, &opt.env)?;
         let mut child = pair.slave.spawn_command(cmd).map_err(exec_error)?;
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().map_err(exec_error)?;
@@ -197,6 +288,17 @@ impl PtyManager {
             elevated: opt.elevated,
             temporary: opt.source != "manual",
         };
+        #[cfg(windows)]
+        let process = unsafe {
+            BorrowedHandle::borrow_raw(
+                child
+                    .as_raw_handle()
+                    .ok_or_else(|| AppError::exec("无法获取进程句柄"))?,
+            )
+            .try_clone_to_owned()?
+        };
+        #[cfg(windows)]
+        let job = process_job(&process)?;
         let session = Arc::new(Session {
             info: Mutex::new(info.clone()),
             output: Mutex::new(String::new()),
@@ -205,14 +307,9 @@ impl PtyManager {
             #[cfg(not(windows))]
             killer: Mutex::new(child.clone_killer()),
             #[cfg(windows)]
-            process: unsafe {
-                BorrowedHandle::borrow_raw(
-                    child
-                        .as_raw_handle()
-                        .ok_or_else(|| AppError::exec("无法获取进程句柄"))?,
-                )
-                .try_clone_to_owned()?
-            },
+            process,
+            #[cfg(windows)]
+            job,
         });
         sessions.insert(info.session_id.clone(), session.clone());
         drop(sessions);
@@ -260,6 +357,15 @@ impl PtyManager {
         let app = self.app.clone();
         std::thread::spawn(move || {
             let code = child.wait().map(|s| s.exit_code() as i32).unwrap_or(-1);
+            #[cfg(windows)]
+            if let Some(job) = &session.job {
+                unsafe {
+                    windows_sys::Win32::System::JobObjects::TerminateJobObject(
+                        job.as_raw_handle(),
+                        1,
+                    );
+                }
+            }
             // 进程退出后关闭 ConPTY，使输出管道发送 EOF，再等读取线程排空。
             session.master.lock().take();
             let _ = read_thread.join();

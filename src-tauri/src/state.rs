@@ -5,9 +5,9 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::db::models::AppSettings;
@@ -29,6 +29,8 @@ pub struct AppState {
     pub shortcut: RwLock<String>,
     /// 调度器线程是否在运行
     pub scheduler_running: AtomicBool,
+    pub scheduler_epoch: AtomicU64,
+    pub scheduler_control: Mutex<()>,
     /// 窗口是否正在退出（托盘最小化时为 true，阻止真正退出）
     pub exiting: AtomicBool,
     /// 工作流线程池的运行计数（仅用于状态栏展示）
@@ -70,6 +72,8 @@ impl AppState {
             data_dir,
             shortcut: RwLock::new(String::new()),
             scheduler_running: AtomicBool::new(false),
+            scheduler_epoch: AtomicU64::new(0),
+            scheduler_control: Mutex::new(()),
             exiting: AtomicBool::new(false),
             active_workflows: RwLock::new(Vec::new()),
         })

@@ -71,13 +71,18 @@ pub fn trigger_schedule_now(app: AppHandle, id: String) -> AppResult<String> {
 }
 pub fn start_scheduler_internal(app: &AppHandle) -> bool {
     let st = app.state::<AppState>();
+    let _control = st.scheduler_control.lock();
     if st.scheduler_running.swap(true, Ordering::SeqCst) {
         return false;
     }
+    let epoch = st.scheduler_epoch.fetch_add(1, Ordering::SeqCst) + 1;
     let app = app.clone();
     std::thread::spawn(move || loop {
         let st = app.state::<AppState>();
-        if !st.scheduler_running.load(Ordering::SeqCst) || st.exiting.load(Ordering::SeqCst) {
+        if !st.scheduler_running.load(Ordering::SeqCst)
+            || st.exiting.load(Ordering::SeqCst)
+            || st.scheduler_epoch.load(Ordering::SeqCst) != epoch
+        {
             break;
         }
         if let Ok(due) = schedules::due(&st.db, now_ms()) {
@@ -95,5 +100,7 @@ pub fn start_scheduler(app: AppHandle) -> bool {
 }
 #[tauri::command]
 pub fn stop_scheduler(state: State<'_, AppState>) -> bool {
+    let _control = state.scheduler_control.lock();
+    state.scheduler_epoch.fetch_add(1, Ordering::SeqCst);
     state.scheduler_running.swap(false, Ordering::SeqCst)
 }

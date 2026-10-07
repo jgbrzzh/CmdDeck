@@ -11,7 +11,8 @@ pub fn options(
     args: &HashMap<String, String>,
     source: &str,
 ) -> AppResult<SpawnOptions> {
-    let re = regex::Regex::new(r"\{\{\s*([^{}\s]+)\s*\}\}").unwrap();
+    static PLACEHOLDER: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = PLACEHOLDER.get_or_init(|| regex::Regex::new(r"\{\{\s*([^{}\s]+)\s*\}\}").unwrap());
     let fill = |text: &str| -> AppResult<String> {
         for c in re.captures_iter(text) {
             if !args.contains_key(&c[1]) {
@@ -25,6 +26,7 @@ pub fn options(
             .into_owned())
     };
     Ok(SpawnOptions {
+        runtime: p.runtime.clone(),
         preset_id: p.id.clone(),
         title: p.name.clone(),
         kind: p.kind.clone(),
@@ -50,6 +52,7 @@ pub fn options(
     })
 }
 fn validate_spawn(state: &AppState, opt: &SpawnOptions, confirmed: bool) -> AppResult<()> {
+    crate::environments::validate_binding(&opt.runtime)?;
     let settings = state.settings();
     let (program, args) = opt.resolve();
     let text = join_command_line(&program, &args);

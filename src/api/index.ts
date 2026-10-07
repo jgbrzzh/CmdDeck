@@ -188,6 +188,10 @@ export const workflowApi = {
 // ============================================================
 
 export const systemApi = {
+  integrationStatus: () =>
+    call<{ autostart: boolean; tray: boolean; scheduler: boolean }>(
+      "get_integration_status",
+    ),
   appInfo: () => call<AppInfo>("get_app_info"),
   getSettings: () => call<AppSettings>("get_settings"),
   saveSettings: (settings: AppSettings) =>

@@ -4,7 +4,7 @@
  *
  * 职责：
  * 1. 创建 / 销毁 xterm 实例与四个 addon（fit / search / web-links / unicode11）
- * 2. **拉取式**渲染后端输出：监听 `tab.outputBuffer.length`，取增量 `term.write()`
+ * 2. 按帧监听输出绝对偏移，缓存截断后继续增量写入 xterm。
  * 3. 用户输入 → `terminalStore.write()` 发给后端 PTY
  * 4. 尺寸同步：ResizeObserver + window resize → `fitAddon.fit()` → `store.resize()`
  * 5. 键盘快捷键（复制 / 粘贴 / 搜索 / 翻页）、内置搜索条、右键菜单
@@ -15,8 +15,8 @@
  * 并不把数据本身交给视图。如果视图只在 fit 回调里读 `getBuffer(id)`，
  * 一次高频输出就会被写进 xterm 很多次（每帧一次），性能很差。
  * 所以本组件把职责拆开：
- * - `watch(outputBuffer.length)` 负责**按帧只写一次增量**；
- * - `setFit` 回调负责**重排尺寸**（并把新行列数同步给后端）。
+ * - 输出监听在 requestAnimationFrame 中合并增量。
+ * - 数据回调只处理自动贴底；尺寸同步只由容器大小变化触发。
  */
 
 import {
@@ -113,6 +113,7 @@ let searchResultDisposable: { dispose(): void } | null = null;
 let windowResizeHandler: (() => void) | null = null;
 /** 已经写进 xterm 的缓冲长度 */
 let lastWrittenLen = 0;
+let outputRaf = 0;
 /** 贴合底部的滚轮监听器 */
 let scrollHandler: (() => void) | null = null;
 
@@ -205,7 +206,6 @@ function doFit(): void {
 
 /** 供 store 在收到数据后调用：重排 + 贴底 */
 function onStoreData(): void {
-  doFit();
   if (stickBottom.value) term?.scrollToBottom();
 }
 
@@ -222,18 +222,13 @@ function onWindowResize(): void {
 function flushPending(): void {
   if (!term) return;
   const buf = props.tab.outputBuffer ?? "";
-  if (buf.length === lastWrittenLen) return;
-
-  if (buf.length < lastWrittenLen) {
-    // store 在缓冲超过 1MB 时会做「保留头尾」的截断，长度会回退。
-    // 此时无法可靠取增量，直接对齐长度，避免把整段内容重复写进终端。
-    lastWrittenLen = buf.length;
-    return;
-  }
-
-  const chunk = buf.slice(lastWrittenLen);
-  lastWrittenLen = buf.length;
-  term.write(chunk);
+  const end = props.tab.outputOffset + buf.length;
+  if (end <= lastWrittenLen) return;
+  const chunk = buf.slice(Math.max(0, lastWrittenLen - props.tab.outputOffset));
+  lastWrittenLen = end;
+  term.write(chunk, () => {
+    if (stickBottom.value) term?.scrollToBottom();
+  });
 }
 
 /** 重放历史快照（从历史记录恢复现场时用） */
@@ -242,7 +237,8 @@ function replaySnapshot(): void {
   if (!snap) return;
   term?.write(snap);
   props.tab.pendingSnapshot = null;
-  lastWrittenLen = (props.tab.outputBuffer ?? "").length;
+  lastWrittenLen =
+    props.tab.outputOffset + (props.tab.outputBuffer ?? "").length;
   doFit();
   term?.scrollToBottom();
 }
@@ -601,6 +597,7 @@ onMounted(() => {
 });
 
 onBeforeUnmount(() => {
+  cancelAnimationFrame(outputRaf);
   terminalStore.setFit(sessionId.value, null);
   unregisterBridge(sessionId.value);
 
@@ -632,8 +629,14 @@ onBeforeUnmount(() => {
 
 /** 输出增量：拉取式，store 追加后触发 */
 watch(
-  () => props.tab.outputBuffer.length,
-  () => flushPending(),
+  () => props.tab.outputOffset + props.tab.outputBuffer.length,
+  () => {
+    if (!outputRaf)
+      outputRaf = requestAnimationFrame(() => {
+        outputRaf = 0;
+        flushPending();
+      });
+  },
 );
 
 /** 标签被激活 → 抢焦点 + 重排（display 切换后尺寸才有意义） */

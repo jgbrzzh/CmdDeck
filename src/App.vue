@@ -28,6 +28,8 @@ import { useTerminalStore } from "@/stores/terminals";
 import { useUiStore } from "@/stores/ui";
 import { useTheme } from "@/composables/useTheme";
 import TerminalWorkspace from "@/components/terminal/TerminalWorkspace.vue";
+import EnvironmentManager from "@/components/EnvironmentManager.vue";
+import { environmentApi } from "@/api/environments";
 import type {
   AuditLog,
   Preset,
@@ -35,6 +37,8 @@ import type {
   TerminalHistory,
   Workflow,
   WorkflowRun,
+  EnvironmentInfo,
+  EnvironmentReport,
 } from "@/types";
 import "./styles/deck.css";
 const ps = reactive(usePresetStore()),
@@ -73,11 +77,61 @@ const logs = ref<AuditLog[]>([]),
   blacklistText = ref("");
 const pages = [
   { id: "presets", label: "预设指令", icon: "⌘" },
+  { id: "environments", label: "运行环境", icon: "◇" },
   { id: "workflows", label: "工作流", icon: "⛓" },
   { id: "schedules", label: "定时任务", icon: "◷" },
   { id: "audit", label: "运行记录", icon: "≡" },
   { id: "settings", label: "设置", icon: "⚙" },
 ] as const;
+const environmentReport = ref<EnvironmentReport | null>(null),
+  environmentLoading = ref(false);
+const integrations = ref<{
+  autostart: boolean;
+  tray: boolean;
+  scheduler: boolean;
+} | null>(null);
+async function refreshIntegrations() {
+  await attempt(async () => {
+    integrations.value = await systemApi.integrationStatus();
+  });
+}
+async function toggleScheduler() {
+  await attempt(async () => {
+    if (integrations.value?.scheduler) await scheduleApi.stop();
+    else await scheduleApi.start();
+    await refreshIntegrations();
+  });
+}
+async function refreshEnvironments() {
+  if (environmentLoading.value) return;
+  environmentLoading.value = true;
+  await attempt(async () => {
+    environmentReport.value = await environmentApi.discover(
+      editor.value?.workingDir || ss.settings.defaultWorkingDir,
+    );
+  });
+  environmentLoading.value = false;
+}
+function bindEnvironment(id: string) {
+  if (!editor.value) return;
+  const e = environmentReport.value?.environments.find((e) => e.id === id);
+  editor.value.runtime = e
+    ? { kind: e.kind, path: e.path, managerPath: e.managerPath }
+    : { kind: "", path: "", managerPath: "" };
+}
+function presetFromEnvironment(e: EnvironmentInfo) {
+  edit();
+  if (editor.value) {
+    editor.value.name = `${e.name} 指令`;
+    editor.value.runtime = {
+      kind: e.kind,
+      path: e.path,
+      managerPath: e.managerPath,
+    };
+    editor.value.kind = e.kind === "node" ? "node" : "python";
+    editor.value.useShell = false;
+  }
+}
 const quickResults = computed(() =>
   ps.presets
     .filter(
@@ -247,13 +301,19 @@ async function batch() {
 }
 async function refreshPanels() {
   await attempt(async () => {
-    [workflows.value, schedules.value, logs.value, history.value, runs.value] =
-      await Promise.all([
+    // 只查询当前页面，避免定时页重复传输终端历史与审计输出。
+    if (ui.view === "workflows")
+      [workflows.value, runs.value] = await Promise.all([
         workflowApi.list(),
-        scheduleApi.list(),
+        workflowApi.listRuns("", 50),
+      ]);
+    else if (ui.view === "schedules") {
+      schedules.value = await scheduleApi.list();
+      await refreshIntegrations();
+    } else if (ui.view === "audit")
+      [logs.value, history.value] = await Promise.all([
         auditApi.list(),
         auditApi.history(),
-        workflowApi.listRuns("", 50),
       ]);
   });
 }
@@ -329,7 +389,21 @@ async function saveSettings() {
       .map((s) => s.trim())
       .filter(Boolean);
     await ss.save({ ...ss.settings });
+    await refreshIntegrations();
     ui.toast("success", "设置已保存");
+  });
+}
+async function pickWorkingDirectory(forPreset: boolean) {
+  await attempt(async () => {
+    const path = await open({
+      directory: true,
+      multiple: false,
+      title: "选择命令运行的项目目录",
+    });
+    if (typeof path === "string") {
+      if (forPreset && editor.value) editor.value.workingDir = path;
+      else ss.settings.defaultWorkingDir = path;
+    }
   });
 }
 async function exportConfig() {
@@ -457,6 +531,7 @@ watch(
   () => {
     if (["workflows", "schedules", "audit"].includes(ui.view))
       void refreshPanels();
+    if (ui.view === "settings") void refreshIntegrations();
     window.setTimeout(() => ts.fitAll(), 80);
   },
 );
@@ -661,6 +736,12 @@ onBeforeUnmount(() => {
         </section>
       </template>
       <section v-else class="page">
+        <EnvironmentManager
+          v-if="ui.view === 'environments'"
+          :default-project="ss.settings.defaultWorkingDir"
+          @updated="environmentReport = $event"
+          @preset="presetFromEnvironment"
+        />
         <template v-if="ui.view === 'workflows'"
           ><div class="page-heading">
             <div>
@@ -706,7 +787,14 @@ onBeforeUnmount(() => {
             <div>
               <h1>定时任务</h1>
               <p>程序运行时执行。每日、每周和单次任务使用北京时间 UTC+8。</p>
+              <p>
+                调度器：{{ integrations?.scheduler ? "正在运行" : "已暂停" }} ·
+                暂停只阻止新任务，已启动进程继续运行。
+              </p>
             </div>
+            <button @click="toggleScheduler">
+              {{ integrations?.scheduler ? "暂停调度" : "启动调度" }}
+            </button>
             <button class="primary" @click="newSchedule()">＋ 新建任务</button>
           </div>
           <article v-for="s in schedules" :key="s.id" class="resource-card">
@@ -773,6 +861,11 @@ onBeforeUnmount(() => {
             <button class="primary" @click="saveSettings">保存设置</button>
           </div>
           <div class="settings-grid">
+            <p v-if="integrations" class="wide">
+              系统状态：托盘{{ integrations.tray ? "已创建" : "未创建" }} ·
+              开机自启{{ integrations.autostart ? "已注册" : "未注册" }} ·
+              调度器{{ integrations.scheduler ? "运行中" : "已暂停" }}
+            </p>
             <label
               >主题<select v-model="ss.settings.theme">
                 <option value="dark">暗色</option>
@@ -794,7 +887,13 @@ onBeforeUnmount(() => {
                 max="48" /></label
             ><label
               >默认工作目录<input
-                v-model="ss.settings.defaultWorkingDir" /></label
+                v-model="ss.settings.defaultWorkingDir"
+                placeholder="留空时使用用户主目录"
+              />
+              <button @click="pickWorkingDirectory(false)">选择文件夹</button>
+              <small
+                >预设目录优先；未指定时使用此目录，留空则打开用户主目录。</small
+              ></label
             ><label
               >全局快捷键<input v-model="ss.settings.globalHotkey" /></label
             ><label
@@ -932,13 +1031,65 @@ onBeforeUnmount(() => {
               v-model="editor.program"
               rows="3"
               placeholder="Shell 填完整脚本；Python/Node 可留空；支持 {{name}} 占位符"
-            /></label
+            />
+            <small v-if="['powershell', 'pwsh'].includes(editor.kind)"
+              >支持多行脚本、$env: 环境变量和 &amp; 调用。所有行在同一个
+              PowerShell 进程执行；相对路径以工作目录为起点。</small
+            ></label
           ><label class="wide"
             >参数（每行一个，Shell 模式按空格追加）<textarea
               v-model="argsText"
               rows="3"
             /></label
-          ><label>工作目录<input v-model="editor.workingDir" /></label
+          ><label
+            >工作目录<input
+              v-model="editor.workingDir"
+              placeholder="留空则使用默认目录"
+            />
+            <button type="button" @click="pickWorkingDirectory(true)">
+              选择文件夹
+            </button></label
+          ><label
+            >运行环境<select
+              :value="
+                editor.runtime?.kind
+                  ? `${editor.runtime.kind}:${editor.runtime.path}`
+                  : ''
+              "
+              @change="
+                bindEnvironment(($event.target as HTMLSelectElement).value)
+              "
+            >
+              <option value="">继承系统环境</option>
+              <option
+                v-if="
+                  editor.runtime?.kind &&
+                  !environmentReport?.environments.some(
+                    (e) =>
+                      e.kind === editor!.runtime.kind &&
+                      e.path === editor!.runtime.path,
+                  )
+                "
+                :value="`${editor.runtime.kind}:${editor.runtime.path}`"
+              >
+                已保存：{{ editor.runtime.path }}
+              </option>
+              <option
+                v-for="e in environmentReport?.environments"
+                :key="e.id"
+                :value="e.id"
+              >
+                {{ e.name }} · {{ e.kind }}
+              </option></select
+            ><button
+              type="button"
+              :disabled="environmentLoading"
+              @click="refreshEnvironments"
+            >
+              {{ environmentLoading ? "检测中…" : "检测运行环境" }}</button
+            ><small
+              >选择只影响当前子进程；定时任务和工作流使用同一环境。</small
+            ></label
           ><label
             >分组<select v-model="editor.groupId">
               <option value="">未分组</option>

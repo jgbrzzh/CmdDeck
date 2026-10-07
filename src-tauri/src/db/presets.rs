@@ -22,7 +22,7 @@ use crate::error::{AppError, AppResult};
 const COLUMNS: &str = "id, name, kind, program, args, working_dir, env, use_shell, icon, \
                        group_id, tags, confirm, elevated, danger_level, notes, sort_order, \
                        favorite, hidden, shortcut, placeholder_args, run_count, last_run_at, \
-                       created_at, updated_at";
+                       created_at, updated_at, runtime";
 
 /// 「最近使用」最多返回多少条
 const RECENT_LIMIT: i64 = 50;
@@ -41,6 +41,7 @@ fn row_to_preset(row: &Row<'_>) -> rusqlite::Result<Preset> {
     let ph_json: String = row.get(19)?;
 
     Ok(Preset {
+        runtime: from_json(&row.get::<_, String>(24)?, Default::default()),
         id: row.get(0)?,
         name: row.get(1)?,
         kind: row.get(2)?,
@@ -93,7 +94,7 @@ fn exists_locked(conn: &Connection, id: &str) -> bool {
 fn write_preset(conn: &Connection, p: &Preset) -> AppResult<()> {
     let sql = format!(
         "INSERT INTO presets ({COLUMNS}) VALUES \
-         (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24) \
+         (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25) \
          ON CONFLICT(id) DO UPDATE SET \
            name=excluded.name, kind=excluded.kind, program=excluded.program, args=excluded.args, \
            working_dir=excluded.working_dir, env=excluded.env, use_shell=excluded.use_shell, \
@@ -103,7 +104,7 @@ fn write_preset(conn: &Connection, p: &Preset) -> AppResult<()> {
            hidden=excluded.hidden, shortcut=excluded.shortcut, \
            placeholder_args=excluded.placeholder_args, run_count=excluded.run_count, \
            last_run_at=excluded.last_run_at, created_at=excluded.created_at, \
-           updated_at=excluded.updated_at"
+           updated_at=excluded.updated_at, runtime=excluded.runtime"
     );
     conn.execute(
         &sql,
@@ -132,6 +133,7 @@ fn write_preset(conn: &Connection, p: &Preset) -> AppResult<()> {
             p.last_run_at,
             p.created_at,
             p.updated_at,
+            to_json(&p.runtime),
         ],
     )?;
     Ok(())

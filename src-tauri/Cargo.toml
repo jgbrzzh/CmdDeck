@@ -1,7 +1,7 @@
 [package]
 # CmdDeck —— Windows 控制台集中管理中心（Rust 后端）
 name = "cmddeck"
-version = "1.0.0"
+version = "1.1.0"
 description = "CmdDeck - Windows 控制台集中管理中心"
 authors = ["CmdDeck"]
 edition = "2021"

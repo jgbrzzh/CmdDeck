@@ -5,7 +5,7 @@
  * 五种视觉变体（primary / default / ghost / text / danger）× 三种尺寸，
  * 覆盖全站所有按钮场景：工具栏、弹窗底部、列表项操作。
  */
-import { computed, useAttrs } from "vue";
+import { computed, useAttrs, useSlots } from "vue";
 
 import Icon from "./Icon.vue";
 
@@ -44,12 +44,13 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: "click", ev: MouseEvent): void }>();
 
 const attrs = useAttrs();
+const slots = useSlots();
 
 /** 真正的禁用态：显式禁用或加载中 */
 const inert = computed<boolean>(() => props.disabled || props.loading);
 
 /** 只在有图标的纯图标按钮上生效（此时按钮是正方形） */
-const iconOnly = computed<boolean>(() => !attrs.default);
+const iconOnly = computed<boolean>(() => !slots.default);
 
 const rootClass = computed(() => [
   "cd-btn",
@@ -221,6 +222,11 @@ function onClick(ev: MouseEvent): void {
 
 .cd-btn__text {
   display: inline-block;
+  flex-shrink: 0;
+}
+
+.cd-btn__icon {
+  flex-shrink: 0;
 }
 
 .cd-btn__spinner {

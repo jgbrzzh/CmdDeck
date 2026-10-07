@@ -89,6 +89,7 @@ export const RUN_SOURCE_LABEL: Record<RunSource, string> = {
 
 /** 一条预设指令 */
 export interface Preset {
+  runtime: RuntimeBinding;
   id: string;
   name: string;
   kind: PresetKind;
@@ -128,6 +129,7 @@ export interface Preset {
 export function createEmptyPreset(): Preset {
   const now = Date.now();
   return {
+    runtime: { kind: "", path: "", managerPath: "" },
     id: "",
     name: "新预设",
     kind: "powershell",
@@ -209,6 +211,7 @@ export function createEmptyGroup(): PresetGroup {
 
 /** 创建终端会话的参数 */
 export interface SpawnOptions {
+  runtime?: RuntimeBinding;
   presetId?: string;
   title?: string;
   kind?: PresetKind;
@@ -601,6 +604,8 @@ export interface TerminalTab extends TerminalInfo {
   pendingSnapshot: string | null;
   /** 最近一次输出，用于"复制全部" */
   outputBuffer: string;
+  /** 缓冲头部已丢弃的字符数，用绝对偏移继续渲染新输出。 */
+  outputOffset: number;
   /** 是否已被用户手动终止 */
   stoppedByUser: boolean;
   /** 是否在后台运行（标签页不可见但仍在跑） */
@@ -619,7 +624,13 @@ export interface Toast {
 
 /** 应用视图 */
 export type ViewName =
-  "presets" | "terminals" | "workflows" | "schedules" | "audit" | "settings";
+  | "environments"
+  | "presets"
+  | "terminals"
+  | "workflows"
+  | "schedules"
+  | "audit"
+  | "settings";
 
 /** 弹窗类型 */
 export type DialogName =
@@ -635,3 +646,11 @@ export type DialogName =
   | "scheduleEditor"
   | "history"
   | "about";
+import type { RuntimeBinding } from "./environments";
+export type {
+  RuntimeBinding,
+  EnvironmentInfo,
+  EnvironmentReport,
+  EnvironmentAction,
+  ToolInfo,
+} from "./environments";

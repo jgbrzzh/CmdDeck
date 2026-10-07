@@ -37,6 +37,7 @@ impl SeedPreset {
         let now = now_ms();
         Self {
             p: Preset {
+                runtime: Default::default(),
                 id: new_id(),
                 name: name.to_string(),
                 kind: kind.to_string(),
