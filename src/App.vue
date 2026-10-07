@@ -492,6 +492,9 @@ async function triggerSchedule(id: string) {
 async function openDataDir() {
   await attempt(() => systemApi.openDataDir());
 }
+async function openRepository() {
+  await attempt(() => systemApi.openRepository());
+}
 function date(n: number) {
   return n ? new Date(n).toLocaleString("zh-CN") : "—";
 }
@@ -571,7 +574,13 @@ onBeforeUnmount(() => {
   <div class="deck">
     <header class="topbar">
       <div class="brand">
-        <span class="brand-mark">&gt;_</span>CmdDeck <small>控制台中心</small>
+        <img
+          class="brand-mark"
+          src="/favicon.svg"
+          alt=""
+          width="30"
+          height="30"
+        />CmdDeck <small>控制台中心</small>
       </div>
       <input
         v-model="ps.keyword"
@@ -582,6 +591,23 @@ onBeforeUnmount(() => {
       ><button @click="newWindow">新窗口</button
       ><button @click="ui.toggleTheme()">
         {{ ui.theme === "dark" ? "☀" : "☾" }}
+      </button>
+      <button
+        title="GitHub 项目主页"
+        aria-label="GitHub 项目主页"
+        @click="openRepository"
+      >
+        <svg
+          width="19"
+          height="19"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            d="M12 .75a11.25 11.25 0 0 0-3.56 21.92c.56.1.77-.24.77-.54v-2.1c-3.14.68-3.8-1.34-3.8-1.34-.51-1.3-1.25-1.65-1.25-1.65-1.02-.7.08-.69.08-.69 1.13.08 1.73 1.16 1.73 1.16 1 1.72 2.62 1.22 3.26.93.1-.73.39-1.22.71-1.5-2.5-.28-5.13-1.25-5.13-5.56 0-1.23.44-2.24 1.16-3.03-.12-.28-.5-1.43.11-2.98 0 0 .95-.3 3.1 1.16a10.8 10.8 0 0 1 5.64 0c2.15-1.46 3.1-1.16 3.1-1.16.62 1.55.23 2.7.12 2.98.72.8 1.15 1.8 1.15 3.03 0 4.32-2.63 5.28-5.14 5.56.4.35.76 1.04.76 2.1v3.09c0 .3.2.65.78.54A11.25 11.25 0 0 0 12 .75Z"
+          />
+        </svg>
       </button>
     </header>
     <main class="deck-main">

@@ -181,6 +181,14 @@ pub fn open_data_dir(app: AppHandle, state: State<'_, AppState>) -> AppResult<()
     open_path_impl(&app, &dir)
 }
 
+/// 只打开固定项目主页，不接受任意地址或外部命令。
+#[tauri::command]
+pub fn open_project_repository(app: AppHandle) -> AppResult<()> {
+    app.opener()
+        .open_url("https://github.com/jgbrzzh/CmdDeck", None::<&str>)
+        .map_err(|e| AppError::exec(format!("无法打开项目主页：{e}")))
+}
+
 /// 用系统默认程序打开文件或目录
 #[tauri::command]
 pub fn open_path(app: AppHandle, path: String) -> AppResult<()> {
@@ -207,6 +215,17 @@ fn open_path_impl(app: &AppHandle, path: &str) -> AppResult<()> {
     }
     if !Path::new(p).exists() {
         return Err(AppError::not_found(format!("路径不存在：{p}")));
+    }
+    #[cfg(windows)]
+    if Path::new(p).is_dir() {
+        // 显式打开文件夹，避开 ShellExecute 的目录关联和 COM 定位失败弹窗。
+        let windows =
+            std::env::var_os("WINDIR").ok_or_else(|| AppError::exec("无法找到 Windows 目录"))?;
+        std::process::Command::new(PathBuf::from(windows).join("explorer.exe"))
+            .arg(p)
+            .spawn()
+            .map_err(|e| AppError::exec(format!("无法打开资源管理器 {p}：{e}")))?;
+        return Ok(());
     }
     app.opener()
         .open_path(p, None::<&str>)

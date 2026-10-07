@@ -73,6 +73,7 @@ pub fn run() {
             app.manage(state);
             eprintln!("[CmdDeck] 创建 WebView2 主窗口");
             tauri::WebviewWindowBuilder::from_config(app.handle(), &app.config().app.windows[0])?
+                .icon(tauri::include_image!("icons/128x128.png"))?
                 .data_directory(webview_dir)
                 .build()?;
             eprintln!("[CmdDeck] WebView2 创建完成");
@@ -171,6 +172,7 @@ pub fn run() {
             commands::system_cmds::reset_settings,
             commands::system_cmds::open_data_dir,
             commands::system_cmds::open_path,
+            commands::system_cmds::open_project_repository,
             commands::system_cmds::reveal_path,
             commands::system_cmds::export_data,
             commands::system_cmds::import_data,

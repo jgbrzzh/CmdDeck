@@ -72,14 +72,14 @@ async (page) => {
     const code = String.raw`process.stdout.write(('x'.repeat(60)+'\n').repeat(40000)); setTimeout(()=>console.log('TAIL_AFTER_BUFFER_LIMIT'),300);`;
     let resizeCalls = 0,
       dataEvents = 0;
-    const base = window.__TAURI_INTERNALS__.invoke.bind(
-      window.__TAURI_INTERNALS__,
-    );
+    const apiUrl = appSource.match(/from "([^"]*\/api\/index\.ts[^"]*)"/)[1];
+    const { terminalApi } = await import(apiUrl);
+    const baseResize = terminalApi.resize;
     const { onPtyData } = await import("/src/api/events.ts");
     const unlisten = await onPtyData(() => dataEvents++);
-    window.__TAURI_INTERNALS__.invoke = (cmd, args, opts) => {
-      if (cmd === "resize_terminal") resizeCalls++;
-      return base(cmd, args, opts);
+    terminalApi.resize = (...args) => {
+      resizeCalls++;
+      return baseResize(...args);
     };
     try {
       const p = await create("输出上限", "node", ["-e", code], binding(node));
@@ -106,7 +106,7 @@ async (page) => {
       });
     } finally {
       unlisten();
-      window.__TAURI_INTERNALS__.invoke = base;
+      terminalApi.resize = baseResize;
     }
     const venv = report.environments.find((e) => e.kind === "venv");
     if (venv) {

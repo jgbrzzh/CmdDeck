@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "构建安装包的明确版本号（例如 1.1.0）；留空只检查"
+        required: false
+        type: string
 permissions:
   contents: read
 concurrency:
@@ -13,13 +18,26 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
   build:
-    name: Check and build EXE + MSI
+    name: Check project; package explicit versions
     runs-on: windows-latest
     timeout-minutes: 45
     env:
       CARGO_BUILD_JOBS: "2"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Validate requested installer version
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
+        shell: pwsh
+        env:
+          REQUESTED_VERSION: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || inputs.version }}
+        run: |
+          $requested = $env:REQUESTED_VERSION.Trim()
+          if ($requested.StartsWith('v')) { $requested = $requested.Substring(1) }
+          if ($requested -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw 'Specify an explicit version such as 1.1.0' }
+          $package = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $config = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $cargo = [regex]::Match((Get-Content src-tauri/Cargo.toml -Raw), '(?m)^version\s*=\s*"([^"]+)"').Groups[1].Value
+          if ($requested -ne $package -or $requested -ne $config -or $requested -ne $cargo) { throw 'Requested version must match package.json, Cargo.toml and tauri.conf.json' }
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "24"
@@ -37,6 +55,8 @@ jobs:
             ~/.cargo/git
             src-tauri/target
           key: windows-rust-${{ hashFiles('src-tauri/Cargo.lock', 'src-tauri/Cargo.toml') }}
+          restore-keys: |
+            windows-rust-
       - name: Install frontend dependencies
         run: npm ci
       - name: Typecheck and frontend build
@@ -44,14 +64,17 @@ jobs:
       - name: Rust unit tests
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml -j 2
       - name: Build Windows installers
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
         shell: pwsh
         run: ./scripts/Build.ps1 -Target all
       - name: Collect installers and SHA256
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force artifacts | Out-Null
+          $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
           Get-ChildItem src-tauri/target/release/bundle -Recurse -File |
-            Where-Object { $_.Extension -in '.exe','.msi' } |
+            Where-Object { $_.Extension -in '.exe','.msi' -and $_.Name -like "CmdDeck_${version}_*" } |
             Copy-Item -Destination artifacts
           $files = Get-ChildItem artifacts -File
           if ($files.Count -lt 2) { throw 'Missing EXE or MSI installer' }
@@ -59,6 +82,7 @@ jobs:
             Set-Content artifacts/SHA256SUMS.txt -Encoding utf8
           Copy-Item LICENSE artifacts/LICENSE.txt
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.version != '')
         with:
           name: CmdDeck-windows-x64
           path: artifacts/*

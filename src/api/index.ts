@@ -198,6 +198,7 @@ export const systemApi = {
     call<AppSettings>("save_settings", { settings }),
   resetSettings: () => call<AppSettings>("reset_settings"),
   openDataDir: () => call<void>("open_data_dir"),
+  openRepository: () => call<void>("open_project_repository"),
   openPath: (path: string) => call<void>("open_path", { path }),
   revealPath: (path: string) => call<void>("reveal_path", { path }),
   /** 导出为 JSON 文件，返回导出的预设数量 */

@@ -7,6 +7,8 @@ Windows 控制台集中管理中心。把常用指令保存为预设，在一个
 
 **中文界面、默认暗色、本地 SQLite、Windows WebView2。**
 
+[应用图标与重新生成](docs/ICON.md)
+
 ![CmdDeck 工作台](docs/screenshots/workspace.png)
 
 ## 功能
@@ -133,7 +135,9 @@ npm run tauri:dev
 
 ## GitHub Actions 和发布
 
-推送 `main`、创建 PR 和手动触发会运行前端构建、Rust 单元测试及 Windows EXE / MSI 打包。成功后上传安装包、许可证和 SHA256；artifact 保存 14 天。版本标签 `v*` 在构建成功后自动创建 GitHub Release 并附安装包。
+推送 `main`、创建 PR，以及手动触发时版本号留空，只运行前端检查和构建、Rust 单元测试，不打包 EXE/MSI。
+
+只有明确的版本标签（例如 `v1.1.0`），或在 Actions 的 Run workflow 中填写 `version`，才构建安装包并上传许可证和 SHA256；artifact 保存 14 天。版本号必须与 `package.json`、`src-tauri/Cargo.toml` 和 `src-tauri/tauri.conf.json` 一致。版本标签在构建成功后自动发布 GitHub Release；手动指定版本只上传 artifact。
 
 发布前将 `package.json`、`src-tauri/Cargo.toml` 和 `src-tauri/tauri.conf.json` 的版本保持一致，再更新 lockfile 和 CHANGELOG：
 
