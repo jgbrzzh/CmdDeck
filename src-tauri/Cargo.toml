@@ -43,7 +43,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # ---- 数据库（bundled = 静态编译 SQLite，无需用户另装）----
-rusqlite = { version = "0.37", features = ["bundled"] }
+rusqlite = { version = "0.40", features = ["bundled"] }
 
 # ---- 伪终端：让 cmd/PowerShell/python 表现得像在真终端里 ----
 portable-pty = "0.9"
